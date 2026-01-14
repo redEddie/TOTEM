@@ -64,3 +64,16 @@
 ---
 
 **Tip:** 전체 데이터를 사용하여 재학습이 필요한 경우 `lg3/scripts/prepare_lg3_data.sh` 내의 필터 옵션을 수정하십시오.
+
+
+내 생각에는 extract forecasting data가 제대로 개발단계를 못 따라온 것 같아. 확인해보면 csv가 있지만 auto
+  id별로 나뉘어서 하위 폴더에 있어. 이렇게 된 이유는 데이터세트를 만들 때 단순하게 auto id를 같은 시간에
+  있다고 11개 concatnate시키면 시계열데이터가 시간순서를 지키지 못하는 문제가 있기 때문이지. 그래서
+  데이터세트를 만들 때는 이러한 autoid별 csv를 이용해서 concatenate시키는 방식을 이용하는 방법밖에 없어.
+
+   트랜스포머 모델 크기: d_model=64, nlayers=4 (비교적 작은 모델)
+   >>    1 # 아래 4줄을 train_forecaster.sh의 마지막에 추가
+   2   --d-model 128 \
+   3   --d_hid 512 \
+   4   --nlayers 8 \
+   5   --nhead 8
