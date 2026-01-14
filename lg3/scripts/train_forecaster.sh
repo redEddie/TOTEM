@@ -8,4 +8,10 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --codebook_size 256 \
   --checkpoint \
   --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin96_Tout96_seed2021" \
-  --file_save_path "lg3/results/"
+  --file_save_path "lg3/results/" \
+  --d-model 128 \
+  --d_hid 512 \
+  --nlayers 8 \
+  --nhead 8 \
+  --baselr 0.0005 \
+  --batchsize 4096

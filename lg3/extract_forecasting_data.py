@@ -1,5 +1,6 @@
 import argparse
 import os
+import glob
 
 import numpy as np
 import pandas as pd
@@ -84,15 +85,39 @@ class ExtractData:
         self.device = f"cuda:{self.args.gpu}" if torch.cuda.is_available() else "cpu"
         enc_in = self.args.enc_in
         if enc_in <= 0:
-            sample_path = os.path.join(self.args.input_dir, "lg3_train.csv")
-            enc_in = load_split_csv(sample_path).shape[1]
+            # Find a sample file from the new per-unit structure
+            unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
+            all_files = glob.glob(os.path.join(unit_data_path, f"unit_*/lg3_train.csv"))
+            if not all_files:
+                # Fallback to old structure
+                sample_path = os.path.join(self.args.input_dir, "lg3_train.csv")
+                if not os.path.exists(sample_path):
+                    raise FileNotFoundError(f"No train data files found in {unit_data_path} or {self.args.input_dir} to determine input size.")
+                sample_path_to_load = sample_path
+            else:
+                sample_path_to_load = all_files[0] # Just need one file to get the shape
+
+            enc_in = load_split_csv(sample_path_to_load).shape[1]
         self.revin_layer_x = RevIN(num_features=enc_in, affine=False, subtract_last=False)
         self.revin_layer_y = RevIN(num_features=enc_in, affine=False, subtract_last=False)
 
     def _get_split(self, split):
-        split_path = os.path.join(self.args.input_dir, f"lg3_{split}.csv")
-        df = load_split_csv(split_path)
-        values = df.to_numpy(dtype=np.float32)
+        unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
+        all_files = glob.glob(os.path.join(unit_data_path, f"unit_*/lg3_{split}.csv"))
+        if not all_files:
+            # Fallback to old structure if per-unit data not found
+            split_path = os.path.join(self.args.input_dir, f"lg3_{split}.csv")
+            if not os.path.exists(split_path):
+                 raise FileNotFoundError(f"No data files found for split '{split}' in {unit_data_path} or {self.args.input_dir}")
+            all_files = [split_path]
+            
+        df_list = []
+        for f in all_files:
+            df_list.append(load_split_csv(f))
+        
+        combined_df = pd.concat(df_list, ignore_index=True)
+
+        values = combined_df.to_numpy(dtype=np.float32)
         x, y = build_sequences(values, self.args.seq_len, self.args.pred_len)
         return x, y
 
