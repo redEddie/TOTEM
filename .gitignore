@@ -3,7 +3,10 @@
 *.log
 *.sql
 *.sqlite
- 
+/data/
+/forecasting/data/
+/lg3/data/
+
 # OS generated files #
 ######################
 .DS_Store?

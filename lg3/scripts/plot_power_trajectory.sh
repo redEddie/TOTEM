@@ -1,9 +1,10 @@
 PYTHONPATH=. python -m lg3.plot_forecast_trajectory \
-  --data_dir "lg3/data/forecasting/Tin96_Tout96" \
-  --processed_csv "lg3/data/processed/lg3_train.csv" \
-  --checkpoint_dir "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin96_Tout96_seed2021" \
-  --feature "sc_1_Power" \
-  --sample_idx 0 \
+  --data_dir "lg3/data/forecasting/Tin192_Tout192" \
+  --processed_data_dir "lg3/data/processed" \
+  --checkpoint_dir "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin192_Tout192_seed2021" \
+  --feature "Power" \
+  --sample_idx 5000 \
+  --num_plots 5 \
   --show_input 50 \
   --show_pred 50 \
   --compression 4 \

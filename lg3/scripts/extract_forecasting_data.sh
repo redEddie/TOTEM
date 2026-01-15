@@ -1,8 +1,8 @@
 PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --input_dir "lg3/data/processed" \
-  --save_path "lg3/data/forecasting/Tin96_Tout96/" \
-  --seq_len 96 \
-  --pred_len 96 \
+  --save_path "lg3/data/forecasting/Tin192_Tout192/" \
+  --seq_len 192 \
+  --pred_len 192 \
   --enc_in -1 \
   --gpu 0 \
   --batch_size 256 \
