@@ -9,24 +9,37 @@
 프로젝트의 핵심 로직은 데이터 정제 → 토크나이징 → 학습의 5단계 스텝으로 구성됩니다.
 
 ### 1. 데이터 위치
-현재 README.md가 있는 위치에 data폴더를 만들고 하위에 EREPORT와 SMARTCARE를 넣으면 됩니다. (아직 여러종류의 데이터세트는 고려되지 않음.)
+기본 입력 경로는 `data/elec1_f2/EREPORT`, `data/elec1_f2/SMARTCARE`입니다.
 
-### 1. 스크립트 실행 순서
+### 2. 스크립트 실행 순서
 
 중간 산출물(Artifacts)이 이미 존재한다면 해당 단계는 건너뛰어도 무방합니다.
 
 | 단계 | 실행 스크립트 | 주요 기능 및 역할 |
 | --- | --- | --- |
-| **Step 1** | `prepare_lg3_data.sh` | EREPORT + SMARTCARE 기반 유닛별 데이터셋 생성 (15분 리샘플링 및 시간 필터 적용) |
-| **Step 2** | `save_revin_data.sh` | RevIN 적용 및 개별 유닛 데이터를 학습용 샘플 단위로 병합 |
+| **Step 1** | `prepare_lg3_data.sh` | **가장 중요**: EREPORT + SMARTCARE를 동일한 15분(또는 설정 단위) 기준으로 정렬/병합하여 학습용 CSV 생성 |
+| **Step 2** | `save_revin_data.sh` | RevIN 적용 및 시퀀스 샘플 생성 |
 | **Step 3** | `train_vqvae.sh` | 시계열 특징 추출을 위한 **VQ-VAE 토크나이저** 학습 |
 | **Step 4** | `extract_forecasting_data.sh` | 학습된 토크나이저를 이용해 시계열을 토큰 시퀀스로 변환 |
 | **Step 5** | `train_forecaster.sh` | 토큰화된 데이터를 사용해 최종 **Forecaster** 모델 학습 |
+| **Step 6** | `eval_forecaster_metrics.sh` | feature별/시퀀스별 MSE·MAE 산출 |
 
-### 2. 주요 구현 디테일
+### 3. PREPARE (가장 중요)
 
-* **데이터 조인:** EREPORT를 베이스로 하며, SMARTCARE 데이터는 유닛별로 조인합니다. (`Auto Id`는 그룹핑 목적으로만 활용)
-* **데이터 노이즈 제거:** 반복적인 패턴으로 인한 토큰 편향을 막기 위해 **00:00–06:00 시간대 데이터를 제외**했습니다.
+`prepare_lg3_data.sh`와 `prepare_lg3_data.py`가 전체 파이프라인의 기준이 됩니다.
+
+- EREPORT는 left label/left closed로 리샘플링합니다.
+- SMARTCARE는 `floor(freq)`로 같은 left label 기준을 맞춥니다.
+- SMARTCARE는 구간 내 모든 값의 최빈값을 사용합니다.
+- 결측/파싱 문제는 Pdb로 확인 후 스킵합니다.
+- 스킵된 CSV로 빈 구간이 생기면 병합 후 `dropna()`에서 제거됩니다.
+
+> [주의] EREPORT의 `Power` 컬럼이 빠져 있던 적이 있어 추가했습니다. 예측 대상에 `Power`를 쓴다면 반드시 `EREPORT_COLS`에 포함해야 합니다.
+
+### 4. 주요 구현 디테일
+
+* **데이터 조인:** EREPORT를 베이스로 하며, SMARTCARE는 집계된 값으로 합쳐집니다. (`Auto Id`는 내부 집계에만 사용)
+* **데이터 노이즈 제거:** temporal embedding 영향으로 토큰 편향이 완화되어, 현재는 시간대 필터링을 사용하지 않습니다.
 * **디버깅 정책:** CSV 파싱 이슈 발생 시 `pdb`가 자동 실행됩니다. 터미널에 `pdb` 진입 시 `c`를 입력하여 프로세스를 계속 진행하십시오.
 * **Comet ML:** 현재 로깅은 비활성화 상태입니다. 협업 시 API Key를 설정 파일에 추가하여 활성화할 수 있습니다.
 

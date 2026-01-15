@@ -84,6 +84,7 @@ class ExtractData:
         self.args = args
         self.device = f"cuda:{self.args.gpu}" if torch.cuda.is_available() else "cpu"
         enc_in = self.args.enc_in
+        self.feature_names = None
         if enc_in <= 0:
             # Find a sample file from the new per-unit structure
             unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
@@ -97,7 +98,18 @@ class ExtractData:
             else:
                 sample_path_to_load = all_files[0] # Just need one file to get the shape
 
-            enc_in = load_split_csv(sample_path_to_load).shape[1]
+            sample_df = load_split_csv(sample_path_to_load)
+            enc_in = sample_df.shape[1]
+            self.feature_names = sample_df.columns.tolist()
+        else:
+            unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
+            all_files = glob.glob(os.path.join(unit_data_path, f"unit_*/lg3_train.csv"))
+            if not all_files:
+                sample_path = os.path.join(self.args.input_dir, "lg3_train.csv")
+                if os.path.exists(sample_path):
+                    self.feature_names = load_split_csv(sample_path).columns.tolist()
+            else:
+                self.feature_names = load_split_csv(all_files[0]).columns.tolist()
         self.revin_layer_x = RevIN(num_features=enc_in, affine=False, subtract_last=False)
         self.revin_layer_y = RevIN(num_features=enc_in, affine=False, subtract_last=False)
 
@@ -225,6 +237,11 @@ class ExtractData:
             raise ValueError("pred_len must be divisible by compression_factor.")
 
         os.makedirs(self.args.save_path, exist_ok=True)
+        if self.feature_names:
+            pd.Series(self.feature_names).to_json(
+                os.path.join(self.args.save_path, "feature_names.json"),
+                orient="values",
+            )
 
         print("-------------TRAIN-------------")
         x_train, y_train = self._get_split("train")

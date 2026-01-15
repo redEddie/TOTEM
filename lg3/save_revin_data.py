@@ -88,9 +88,14 @@ def main():
     test_paths = load_unit_splits(args.input_dir, "test")
 
     if not train_paths:
-        raise FileNotFoundError(
-            "No per-unit splits found. Expected lg3/data/processed/smartcare_units/unit_*/lg3_train.csv"
-        )
+        train_paths = [os.path.join(args.input_dir, "lg3_train.csv")]
+        val_paths = [os.path.join(args.input_dir, "lg3_val.csv")]
+        test_paths = [os.path.join(args.input_dir, "lg3_test.csv")]
+        missing = [p for p in train_paths + val_paths + test_paths if not os.path.exists(p)]
+        if missing:
+            raise FileNotFoundError(
+                "No prepared splits found. Expected lg3_train.csv/lg3_val.csv/lg3_test.csv in input_dir."
+            )
 
     sample_df = load_split(train_paths[0], cols=cols)
     num_features = sample_df.shape[1]
