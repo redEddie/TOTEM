@@ -31,6 +31,7 @@ xcuserdata/
 build/
 *.[oa]
 *.pyc
+__pycache__/
  
 # Other source repository archive directories (protects when importing)
 .hg
