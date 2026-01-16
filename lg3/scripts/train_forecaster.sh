@@ -1,13 +1,13 @@
 PYTHONPATH=. python -m lg3.train_forecaster \
   --data-type lg3 \
-  --Tin 288 \
+  --Tin 488 \
   --Tout 96 \
   --cuda-id 0 \
   --seed 2021 \
-  --data_path "lg3/data/forecasting/Tin288_Tout96" \
-  --codebook_size 256 \
+  --data_path "lg3/data/forecasting/Tin488_Tout96_Lag3d_7d1d_14d1d" \
+  --codebook_size 257 \
   --checkpoint \
-  --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin288_Tout96_seed2021" \
+  --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin488_Tout96_Lag3d_7d1d_14d1d_seed2021" \
   --file_save_path "lg3/results/" \
   --d-model 128 \
   --d_hid 512 \

@@ -1,12 +1,20 @@
 import argparse
 import os
 import glob
+import sys
 
 import numpy as np
 import pandas as pd
 import torch
 
 from lg3.lib.models.revin import RevIN
+
+# Support loading checkpoints saved with "lib.*" module paths
+try:
+    import lg3.lib as lg3lib
+    sys.modules.setdefault("lib", lg3lib)
+except Exception:
+    pass
 
 
 def load_split_csv(path):
@@ -25,6 +33,59 @@ def build_sequences(values, seq_len, pred_len):
     for i in range(max_start):
         x[i] = values[i : i + seq_len]
         y[i] = values[i + seq_len : i + seq_len + pred_len]
+    return x, y
+
+
+def build_lagged_sequences(
+    values,
+    pred_len,
+    lag_days,
+    lag_window_steps,
+    steps_per_day,
+    sep_steps,
+    valid_start_idx=None,
+    valid_end_idx=None,
+):
+    lag_steps = [d * steps_per_day for d in lag_days]
+    max_required = max(
+        lag_steps[i] + lag_window_steps[i] for i in range(len(lag_steps))
+    )
+    n = len(values)
+
+    x_list = []
+    y_list = []
+    for t in range(max_required, n - pred_len + 1):
+        if valid_start_idx is not None and t < valid_start_idx:
+            continue
+        if valid_end_idx is not None and (t + pred_len) > valid_end_idx:
+            continue
+        segments = []
+        for idx, lag in enumerate(lag_steps):
+            window_len = lag_window_steps[idx]
+            start = t - lag - window_len
+            end = t - lag
+            segments.append(values[start:end])
+
+        if sep_steps > 0:
+            sep_pad = []
+            for i, seg in enumerate(segments):
+                sep_pad.append(seg)
+                if i < len(segments) - 1:
+                    last_val = seg[-1:]
+                    sep_pad.append(np.repeat(last_val, sep_steps, axis=0))
+            x_seq = np.concatenate(sep_pad, axis=0)
+        else:
+            x_seq = np.concatenate(segments, axis=0)
+
+        y_seq = values[t : t + pred_len]
+        x_list.append(x_seq)
+        y_list.append(y_seq)
+
+    if not x_list:
+        raise ValueError("Not enough rows to build lagged sequences.")
+
+    x = np.stack(x_list, axis=0).astype(np.float32)
+    y = np.stack(y_list, axis=0).astype(np.float32)
     return x, y
 
 
@@ -83,6 +144,20 @@ class ExtractData:
     def __init__(self, args):
         self.args = args
         self.device = f"cuda:{self.args.gpu}" if torch.cuda.is_available() else "cpu"
+        self.use_lagged = args.use_lagged
+        self.lag_days = [int(x) for x in args.lag_days.split(",") if x.strip()]
+        if not self.lag_days:
+            self.lag_days = [0]
+        self.lag_window_days = [int(x) for x in args.lag_window_days.split(",") if x.strip()]
+        if not self.lag_window_days:
+            self.lag_window_days = [1]
+        if len(self.lag_window_days) == 1 and len(self.lag_days) > 1:
+            self.lag_window_days = self.lag_window_days * len(self.lag_days)
+        if len(self.lag_window_days) != len(self.lag_days):
+            raise ValueError("lag_window_days must match lag_days length.")
+        self.steps_per_day = args.steps_per_day
+        self.sep_steps = args.compression_factor if args.use_sep_token else 0
+        self.lag_window_steps = [d * self.steps_per_day for d in self.lag_window_days]
         enc_in = self.args.enc_in
         self.feature_names = None
         if enc_in <= 0:
@@ -113,24 +188,54 @@ class ExtractData:
         self.revin_layer_x = RevIN(num_features=enc_in, affine=False, subtract_last=False)
         self.revin_layer_y = RevIN(num_features=enc_in, affine=False, subtract_last=False)
 
-    def _get_split(self, split):
+    def _load_split_df(self, split):
         unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
         all_files = glob.glob(os.path.join(unit_data_path, f"unit_*/lg3_{split}.csv"))
         if not all_files:
-            # Fallback to old structure if per-unit data not found
             split_path = os.path.join(self.args.input_dir, f"lg3_{split}.csv")
             if not os.path.exists(split_path):
-                 raise FileNotFoundError(f"No data files found for split '{split}' in {unit_data_path} or {self.args.input_dir}")
+                raise FileNotFoundError(
+                    f"No data files found for split '{split}' in {unit_data_path} or {self.args.input_dir}"
+                )
             all_files = [split_path]
-            
-        df_list = []
-        for f in all_files:
-            df_list.append(load_split_csv(f))
-        
-        combined_df = pd.concat(df_list, ignore_index=True)
+        df_list = [load_split_csv(f) for f in all_files]
+        return pd.concat(df_list, ignore_index=True)
 
+    def _get_split(self, split):
+        combined_df = self._load_split_df(split)
         values = combined_df.to_numpy(dtype=np.float32)
-        x, y = build_sequences(values, self.args.seq_len, self.args.pred_len)
+        if self.use_lagged:
+            max_required = max(
+                (self.lag_days[i] * self.steps_per_day) + self.lag_window_steps[i]
+                for i in range(len(self.lag_days))
+            )
+            history_len = max_required
+
+            if split == "train":
+                values_all = values
+                valid_start = 0
+            else:
+                prev_splits = ["train"] if split == "val" else ["train", "val"]
+                prev_df = pd.concat([self._load_split_df(s) for s in prev_splits], ignore_index=True)
+                prev_vals = prev_df.to_numpy(dtype=np.float32)
+                if len(prev_vals) > history_len:
+                    prev_vals = prev_vals[-history_len:]
+                values_all = np.concatenate([prev_vals, values], axis=0)
+                valid_start = len(prev_vals)
+
+            valid_end = valid_start + len(values)
+            x, y = build_lagged_sequences(
+                values_all,
+                self.args.pred_len,
+                self.lag_days,
+                self.lag_window_steps,
+                self.steps_per_day,
+                self.sep_steps,
+                valid_start_idx=valid_start,
+                valid_end_idx=valid_end,
+            )
+        else:
+            x, y = build_sequences(values, self.args.seq_len, self.args.pred_len)
         return x, y
 
     def one_loop_forecasting(self, x_arr, y_arr, vqvae_model):
@@ -210,11 +315,26 @@ class ExtractData:
         data_dict = {}
         data_dict["x_original_arr"] = x_original_arr
         data_dict["y_original_arr"] = y_original_arr
-        data_dict["x_code_ids_all_arr"] = np.swapaxes(x_code_ids_all_arr, 1, 2)
+        x_code_ids_all_arr = np.swapaxes(x_code_ids_all_arr, 1, 2)
+        codebook_arr = codebook.detach().cpu().numpy()
+        if self.use_lagged and self.args.use_sep_token:
+            seg_lens = [w // self.args.compression_factor for w in self.lag_window_steps]
+            sep_positions = []
+            cur = 0
+            for i, seg_len in enumerate(seg_lens):
+                cur += seg_len
+                if i < len(seg_lens) - 1:
+                    sep_positions.append(cur + i)
+            if sep_positions:
+                sep_id = codebook_arr.shape[0]
+                x_code_ids_all_arr[:, sep_positions, :] = sep_id
+                sep_vec = np.zeros((1, codebook_arr.shape[1]), dtype=codebook_arr.dtype)
+                codebook_arr = np.concatenate([codebook_arr, sep_vec], axis=0)
+        data_dict["x_code_ids_all_arr"] = x_code_ids_all_arr
         data_dict["y_code_ids_all_arr"] = np.swapaxes(y_code_ids_all_arr, 1, 2)
         data_dict["x_reverted_all_arr"] = x_reverted_all_arr
         data_dict["y_reverted_all_arr"] = y_reverted_all_arr
-        data_dict["codebook"] = codebook.detach().cpu().numpy()
+        data_dict["codebook"] = codebook_arr
 
         if data_dict["x_original_arr"].shape[-1] != num_sensors:
             raise ValueError("Sensor dimension mismatch.")
@@ -231,8 +351,13 @@ class ExtractData:
         vqvae_model.to(self.device)
         vqvae_model.eval()
 
-        if self.args.seq_len % self.args.compression_factor != 0:
-            raise ValueError("seq_len must be divisible by compression_factor.")
+        if self.use_lagged:
+            total_len = sum(self.lag_window_steps) + self.sep_steps * (len(self.lag_days) - 1)
+            if total_len % self.args.compression_factor != 0:
+                raise ValueError("Lagged input length must be divisible by compression_factor.")
+        else:
+            if self.args.seq_len % self.args.compression_factor != 0:
+                raise ValueError("seq_len must be divisible by compression_factor.")
         if self.args.pred_len % self.args.compression_factor != 0:
             raise ValueError("pred_len must be divisible by compression_factor.")
 
@@ -270,6 +395,11 @@ def main():
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--compression_factor", type=int, default=4)
     parser.add_argument("--trained_vqvae_model_path", type=str, required=True)
+    parser.add_argument("--use_lagged", action="store_true")
+    parser.add_argument("--lag_days", type=str, default="0,7,14")
+    parser.add_argument("--lag_window_days", type=str, default="3")
+    parser.add_argument("--steps_per_day", type=int, default=96)
+    parser.add_argument("--use_sep_token", action="store_true")
     args = parser.parse_args()
 
     exp = ExtractData(args)

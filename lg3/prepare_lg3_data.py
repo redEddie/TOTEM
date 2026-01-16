@@ -141,7 +141,8 @@ def to_numeric(df, cols):
 def resample_ereport(df, freq, cols):
     df = to_numeric(df, cols)
     df = df.set_index("Timestamp")
-    df = df[cols].resample(freq, label="left", closed="left").mean()
+    df = df[cols].resample(freq, label="left", closed="left").sum()
+    df = df.apply(lambda s: (s.ffill() + s.bfill()) / 2)
     return df
 
 def create_time_features(dt_index):

@@ -1,10 +1,15 @@
 PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --input_dir "lg3/data/processed" \
-  --save_path "lg3/data/forecasting/Tin288_Tout96/" \
+  --save_path "lg3/data/forecasting/Tin488_Tout96_Lag3d_7d1d_14d1d/" \
   --seq_len 288 \
   --pred_len 96 \
   --enc_in -1 \
   --gpu 0 \
   --batch_size 256 \
   --compression_factor 4 \
-  --trained_vqvae_model_path "lg3/saved_models/CD64_CW256_CF4_BS2048_ITR15000/checkpoints/final_model.pth"
+  --trained_vqvae_model_path "data/TOTEM_data_and_pretrained_tokenizers/generatlist_pretrained_tokenizers/forecasting/CD64_CW256_CF4_BS4096_ITR120000/checkpoints/final_model.pth" \
+  --use_lagged \
+  --lag_days "0,7,14" \
+  --lag_window_days "3,1,1" \
+  --steps_per_day 96 \
+  --use_sep_token
