@@ -311,6 +311,12 @@ def main():
     # --- 5. Split and Save ---
     train, val, test = time_split(merged_df, args.train_ratio, args.val_ratio)
     print(f"Train samples: {len(train)}, Validation samples: {len(val)}, Test samples: {len(test)}")
+    if not train.empty:
+        print(f"Train range: {train.index.min()} -> {train.index.max()}")
+    if not val.empty:
+        print(f"Val range: {val.index.min()} -> {val.index.max()}")
+    if not test.empty:
+        print(f"Test range: {test.index.min()} -> {test.index.max()}")
     
     save_splits(args.output_dir, "lg3", train, val, test)
 

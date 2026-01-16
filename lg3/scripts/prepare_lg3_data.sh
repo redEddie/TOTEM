@@ -1,4 +1,4 @@
-EREPORT_COLS="Capa_Cooling,MFR_068,Rop,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,cycle,HighP,LowP,Tcond,SCEEV_M"
+EREPORT_COLS="MFR_068,Rop,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,cycle,Tcond,SCEEV_M"
 SMARTCARE_COLS="Tod"
 
 python lg3/prepare_lg3_data.py \
