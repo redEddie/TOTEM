@@ -1,0 +1,11 @@
+PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
+  --data_dir "lg3/data/forecasting/Tin128_Tout24_Lag3d_7d1_14d1" \
+  --feature_names_path "lg3/data/forecasting/Tin128_Tout24_Lag3d_7d1_14d1/feature_names.json" \
+  --checkpoint_dir "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin128_Tout24_Lag3d_7d1_14d1_seed2021" \
+  --feature "Power" \
+  --start_idx 0 \
+  --num_sequences 200 \
+  --batch_size 32 \
+  --cuda_id 0 \
+  --scheme 1 \
+  --output "lg3/results/forecast_overlap_power.png"

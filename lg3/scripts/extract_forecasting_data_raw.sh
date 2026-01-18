@@ -1,0 +1,11 @@
+PYTHONPATH=. python -m lg3.extract_forecasting_data_raw \
+  --input_dir "lg3/data/processed" \
+  --save_path "lg3/data/forecasting_raw/Tin128_Tout24_Lag3d_7d1_14d1" \
+  --seq_len 288 \
+  --pred_len 24 \
+  --compression_factor 4 \
+  --use_lagged \
+  --lag_days "0,7,14" \
+  --lag_window_days "3,1,1" \
+  --steps_per_day 24 \
+  --sep_steps 4

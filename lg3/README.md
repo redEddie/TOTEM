@@ -1,11 +1,21 @@
 # 🚀 LG3 예측 파이프라인 (LG3 Prediction Pipeline)
 
+## MLP
+- 토크나이저 MLP 학습/평가/플롯 모듈: lg3/train_forecaster_mlp.py, lg3/eval_forecaster_metrics_mlp.py, lg3/
+plot_forecaster_overlap_mlp.py
+- 비토크나이저(raw) MLP 학습/평가/플롯 모듈: lg3/train_forecaster_raw_mlp.py, lg3/
+eval_forecaster_metrics_raw_mlp.py, lg3/plot_forecaster_overlap_raw_mlp.py
+- 토크나이저 MLP 스크립트: lg3/scripts/train_forecaster_mlp.sh, lg3/scripts/eval_forecaster_metrics_mlp.sh, lg3/
+scripts/run_all_mlp.sh
+- raw MLP 스크립트: lg3/scripts/train_forecaster_raw_mlp.sh, lg3/scripts/eval_forecaster_metrics_raw_mlp.sh, lg3/
+scripts/run_all_raw_mlp.sh
+
 ## 🔔 UPDATE
 
-- Temporal lag 입력 구성 추가 (직전 3일 + 1주 전 1일 + 2주 전 1일, 구간 사이 SEP 토큰)
+- Temporal lag 입력 구성 추가 (3d + 7d1 + 14d1, 구간 사이 SEP 토큰)
 - extract_forecasting_data에 lag 시퀀스/SEP 삽입/feature_names.json 저장 추가
-- Tin=488 경로로 스크립트 정리, forecaster codebook_size=257 반영
-- EREPORT 15분 리샘플링을 mean에서 sum으로 변경
+- Tin=128/Tout=24 경로로 스크립트 정리, forecaster codebook_size=257 반영
+- EREPORT 1시간 리샘플링을 sum으로 변경
 - 평가 지표 확장: MSE/MAE + MAPE/MASE, feature별/seq별 CSV 출력
 - 예제 노트북 추가 및 개선(시각화/피처 드롭/푸리에/스파이크 리뷰)
 

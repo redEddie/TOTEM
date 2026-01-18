@@ -1,4 +1,4 @@
-PYTHONPATH=. python -m lg3.train_forecaster \
+PYTHONPATH=. python -m lg3.train_forecaster_mlp \
   --data-type lg3 \
   --Tin 128 \
   --Tout 24 \
@@ -7,11 +7,9 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --data_path "lg3/data/forecasting/Tin128_Tout24_Lag3d_7d1_14d1" \
   --codebook_size 257 \
   --checkpoint \
-  --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin128_Tout24_Lag3d_7d1_14d1_seed2021" \
+  --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin128_Tout24_Lag3d_7d1_14d1_seed2021_mlp" \
   --file_save_path "lg3/results/" \
-  --d-model 128 \
-  --d_hid 512 \
-  --nlayers 8 \
-  --nhead 8 \
+  --mlp_hidden_dims "1024,1024,1024" \
+  --mlp_dropout 0.1 \
   --baselr 0.0005 \
   --batchsize 64

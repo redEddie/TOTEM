@@ -1,0 +1,27 @@
+DATA_DIR="lg3/data/forecasting_raw/Tin128_Tout24_Lag3d_7d1_14d1"
+CHECKPOINT_DIR="lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin128_Tout24_Lag3d_7d1_14d1_seed2021_raw_mlp"
+FEATURE_NAMES_PATH="${DATA_DIR}/feature_names.json"
+FEATURE_NAME="Power"
+
+PYTHONPATH=. python -m lg3.eval_forecaster_metrics_raw_mlp \
+  --data_dir "${DATA_DIR}" \
+  --checkpoint_dir "${CHECKPOINT_DIR}" \
+  --batch_size 32 \
+  --cuda_id 0 \
+  --feature_names_path "${FEATURE_NAMES_PATH}" \
+  --output_csv "lg3/results/forecast_metrics_raw_mlp.csv" \
+  --output_seq_mse_csv "lg3/results/forecast_seq_mse_raw_mlp.csv" \
+  --output_seq_mae_csv "lg3/results/forecast_seq_mae_raw_mlp.csv" \
+  --output_seq_mape_csv "lg3/results/forecast_seq_mape_raw_mlp.csv" \
+  --output_seq_mase_csv "lg3/results/forecast_seq_mase_raw_mlp.csv"
+
+PYTHONPATH=. python -m lg3.plot_forecaster_overlap_raw_mlp \
+  --data_dir "${DATA_DIR}" \
+  --feature_names_path "${FEATURE_NAMES_PATH}" \
+  --checkpoint_dir "${CHECKPOINT_DIR}" \
+  --feature "${FEATURE_NAME}" \
+  --start_idx 0 \
+  --num_sequences 200 \
+  --batch_size 32 \
+  --cuda_id 0 \
+  --output "lg3/results/forecast_overlap_${FEATURE_NAME}_raw_mlp.png"

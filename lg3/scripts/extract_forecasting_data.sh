@@ -1,8 +1,8 @@
 PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --input_dir "lg3/data/processed" \
-  --save_path "lg3/data/forecasting/Tin488_Tout96_Lag3d_7d1d_14d1d/" \
+  --save_path "lg3/data/forecasting/Tin128_Tout24_Lag3d_7d1_14d1/" \
   --seq_len 288 \
-  --pred_len 96 \
+  --pred_len 24 \
   --enc_in -1 \
   --gpu 0 \
   --batch_size 256 \
@@ -11,5 +11,5 @@ PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --use_lagged \
   --lag_days "0,7,14" \
   --lag_window_days "3,1,1" \
-  --steps_per_day 96 \
+  --steps_per_day 24 \
   --use_sep_token

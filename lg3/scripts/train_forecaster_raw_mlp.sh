@@ -1,0 +1,14 @@
+PYTHONPATH=. python -m lg3.train_forecaster_raw_mlp \
+  --data-type lg3 \
+  --Tin 128 \
+  --Tout 24 \
+  --cuda-id 0 \
+  --seed 2021 \
+  --data_path "lg3/data/forecasting_raw/Tin128_Tout24_Lag3d_7d1_14d1" \
+  --checkpoint \
+  --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin128_Tout24_Lag3d_7d1_14d1_seed2021_raw_mlp" \
+  --file_save_path "lg3/results/" \
+  --mlp_hidden_dims "1024,1024,1024" \
+  --mlp_dropout 0.1 \
+  --baselr 0.0005 \
+  --batchsize 64

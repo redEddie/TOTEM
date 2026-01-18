@@ -145,9 +145,13 @@ def resample_ereport(df, freq, cols):
     df = df.apply(lambda s: (s.ffill() + s.bfill()) / 2)
     return df
 
-def create_time_features(dt_index):
+def create_time_features(dt_index, holiday_dates=None):
     """Creates time-based features from a DatetimeIndex."""
     df_time = pd.DataFrame(index=dt_index)
+    if holiday_dates is None:
+        holiday_dates = set()
+    df_time["date"] = df_time.index.date
+    df_time["is_holiday"] = df_time["date"].isin(holiday_dates).astype(int)
     # Day cycle (24 steps)
     hour_of_day = df_time.index.hour.astype(int)
     df_time["day_sin"] = np.sin(2 * np.pi * hour_of_day / 24.0)
@@ -171,7 +175,29 @@ def create_time_features(dt_index):
     k = np.arange(len(df_time), dtype=float)
     df_time["week_sin"] = np.sin(2 * np.pi * k / steps_per_week)
     df_time["week_cos"] = np.cos(2 * np.pi * k / steps_per_week)
+    df_time = df_time.drop(columns=["date"])
     return df_time
+
+
+def load_holiday_dates(path):
+    if not path:
+        return set()
+    if not os.path.exists(path):
+        print(f"[WARN] holiday json not found: {path}")
+        pdb.set_trace()
+        return set()
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[WARN] Failed to load holiday json: {path} ({e})")
+        pdb.set_trace()
+        return set()
+    if not isinstance(data, list):
+        print(f"[WARN] holiday json must be a list of YYYY-MM-DD strings: {path}")
+        pdb.set_trace()
+        return set()
+    return set(pd.to_datetime(data).date)
 
 def preprocess_smartcare_cols(df_smart, freq, process_cols_list):
     """Aggregates specified SMARTCARE columns across all units."""
@@ -249,6 +275,7 @@ def main():
         default="Tod",
         help="Comma-separated list of SMARTCARE columns to process and aggregate."
     )
+    parser.add_argument("--holiday_json", type=str, default="lg3/scripts/holiday.json")
     # Args for Tod aggregation
     args = parser.parse_args()
 
@@ -271,6 +298,7 @@ def main():
         pdb.set_trace()
 
     # --- 1. Load Data ---
+    holiday_dates = load_holiday_dates(args.holiday_json)
     er_cols = parse_cols(args.ereport_cols)
     smartcare_process_cols = parse_cols(args.smartcare_process_cols)
 
@@ -293,7 +321,7 @@ def main():
     
     # --- 3. Create Time Features ---
     print("Creating time features...")
-    time_df = create_time_features(base_df.index)
+    time_df = create_time_features(base_df.index, holiday_dates=holiday_dates)
     
     # --- 4. Merge all dataframes ---
     print("Merging dataframes...")

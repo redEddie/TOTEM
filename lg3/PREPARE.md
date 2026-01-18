@@ -6,7 +6,7 @@
 
 `lg3/TODO/하루 전력량 에측 전처리.PY` 대비 현재 준비 스크립트의 차이점입니다.
 
-- 시간 단위: TODO는 1시간, 현재는 15분(또는 `--freq`로 설정).
+- 시간 단위: TODO는 1시간, 현재는 1시간(또는 `--freq`로 설정).
 - EREPORT 처리: TODO는 커버리지/결측 보정이 있고, 현재는 단순 리샘플 평균.
 - SMARTCARE 집계: TODO는 유닛별 평균 후 평균, 현재는 구간 전체 최빈값.
 - 휴일 피처: TODO는 포함, 현재는 미포함(추후 고려).
@@ -46,7 +46,7 @@ bash ./lg3/scripts/prepare_lg3_data.sh
 
 - EREPORT는 left label/left closed로 리샘플링합니다.
 - SMARTCARE는 `floor(freq)`로 같은 left label 기준을 맞춥니다.
-- 결과적으로 EREPORT와 SMARTCARE가 같은 15분(또는 설정 단위) 타임라인으로 합쳐집니다.
+- 결과적으로 EREPORT와 SMARTCARE가 같은 1시간(또는 설정 단위) 타임라인으로 합쳐집니다.
 - CSV가 스킵되어 특정 시간대가 비면, 병합 후 `dropna()`에서 해당 시간대가 제거됩니다.
 
 ## SMARTCARE 집계 방식
