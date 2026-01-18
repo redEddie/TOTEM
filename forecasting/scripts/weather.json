@@ -16,9 +16,9 @@
         "dataset": "weather"
     },
     "comet_config": {
-        "api_key": "add yours here",
-        "project_name": "add yours here",
-        "workspace": "add yours here"
+        "api_key": "HSg3jWMxaDrSc5dQzMGaeVT7u",
+        "project_name": "totem-weather-test",
+        "workspace": "rededdie"
     }
 }
 

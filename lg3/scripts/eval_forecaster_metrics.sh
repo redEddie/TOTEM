@@ -1,0 +1,12 @@
+PYTHONPATH=. python -m lg3.eval_forecaster_metrics \
+  --data_dir "lg3/data/forecasting/Tin488_Tout96_Lag3d_7d1d_14d1d" \
+  --checkpoint_dir "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin488_Tout96_Lag3d_7d1d_14d1d_seed2021" \
+  --batch_size 32 \
+  --cuda_id 0 \
+  --scheme 1 \
+  --feature_names_path "lg3/data/forecasting/Tin488_Tout96_Lag3d_7d1d_14d1d/feature_names.json" \
+  --output_csv "lg3/results/forecast_metrics.csv" \
+  --output_seq_mse_csv "lg3/results/forecast_seq_mse.csv" \
+  --output_seq_mae_csv "lg3/results/forecast_seq_mae.csv" \
+  --output_seq_mape_csv "lg3/results/forecast_seq_mape.csv" \
+  --output_seq_mase_csv "lg3/results/forecast_seq_mase.csv"

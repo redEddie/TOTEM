@@ -1,10 +1,10 @@
 seq_len=96
-root_path_name=/add/your/own/path
+root_path_name=/home/jeonchanwook/Documents/Github/TOTEM/data/weather
 data_path_name=weather.csv
 data_name=custom
 random_seed=2021
 pred_len=96
-gpu=2
+gpu=1
 
 python -u forecasting/save_revin_data.py \
   --random_seed $random_seed \
@@ -19,7 +19,7 @@ python -u forecasting/save_revin_data.py \
   --gpu $gpu\
   --save_path "forecasting/data/weather"
 
-gpu=0
+gpu=1
 python forecasting/train_vqvae.py \
   --config_path forecasting/scripts/weather.json \
   --model_init_num_gpus $gpu \
@@ -33,7 +33,7 @@ python forecasting/train_vqvae.py \
 
 gpu=1
 random_seed=2021
-root_path_name=/add/your/own/path/to/original/files
+root_path_name=/home/jeonchanwook/Documents/Github/TOTEM/data/weather
 data_path_name=weather.csv
 model_id_name=weather
 data_name=custom
@@ -52,7 +52,7 @@ python -u forecasting/extract_forecasting_data.py \
   --enc_in 21 \
   --gpu $gpu\
   --save_path "forecasting/data/weather/Tin"$seq_len"_Tout"$pred_len"/"\
-  --trained_vqvae_model_path 'add/path/to/trained/vqvae'\
+  --trained_vqvae_model_path '/home/jeonchanwook/Documents/Github/TOTEM/forecasting/saved_models/weather/checkpoints/final_model.pth'\
   --compression_factor 4 \
   --classifiy_or_forecast "forecast"
 done
