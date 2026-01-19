@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 import numpy as np
@@ -17,6 +18,7 @@ class ExogMLP(nn.Module):
     def __init__(self, exog_dim, out_dim):
         super().__init__()
         self.net = nn.Sequential(
+            nn.LayerNorm(exog_dim),
             nn.Linear(exog_dim, 64),
             nn.ReLU(),
             nn.Linear(64, out_dim),
@@ -299,6 +301,19 @@ def train(args):
 
     datapath = dataroot
 
+    power_idx = None
+    feature_names_path = os.path.join(datapath, "feature_names.json")
+    if os.path.exists(feature_names_path):
+        try:
+            with open(feature_names_path, "r") as fh:
+                feature_names = json.load(fh)
+            if isinstance(feature_names, dict):
+                feature_names = feature_names.get("features", [])
+            if "Power" in feature_names:
+                power_idx = feature_names.index("Power")
+        except Exception:
+            power_idx = None
+
     if args.checkpoint:
         if not os.path.exists(args.checkpoint_path):
             os.makedirs(args.checkpoint_path)
@@ -401,6 +416,7 @@ def train(args):
             model_mustd.eval()
             running_mse, running_mae, running_cor = 0.0, 0.0, 0.0
             total_num, total_num_c = 0.0, 0.0
+            power_mse_sum, power_mae_sum, power_num = 0.0, 0.0, 0.0
             with torch.no_grad():
                 for i, vdata in enumerate(val_dataloader):
                     pred_time = inference(
@@ -421,16 +437,27 @@ def train(args):
                     running_cor += pearsoncor(pred_time, labels_time, reduction="sum")
                     total_num += labels_time.numel()
                     total_num_c += labels_time.shape[0] * labels_time.shape[2]
+                    if power_idx is not None:
+                        diff = pred_time[:, :, power_idx] - labels_time[:, :, power_idx]
+                        power_mse_sum += (diff * diff).sum().item()
+                        power_mae_sum += diff.abs().sum().item()
+                        power_num += diff.numel()
             running_mae = running_mae / total_num
             running_mse = running_mse / total_num
             running_cor = running_cor / total_num_c
             print(
                 f"| [Val] mse {running_mse:5.4f} mae {running_mae:5.4f} corr {running_cor:5.4f}"
             )
+            if power_idx is not None and power_num > 0:
+                power_mse = power_mse_sum / power_num
+                power_mae = power_mae_sum / power_num
+                print(f"| [Val][Power] mse {power_mse:5.4f} mae {power_mae:5.4f}")
 
             save_file.write(
                 f"| [Val] mse {running_mse:5.4f} mae {running_mae:5.4f} corr {running_cor:5.4f}\n"
             )
+            if power_idx is not None and power_num > 0:
+                save_file.write(f"| [Val][Power] mse {power_mse:5.4f} mae {power_mae:5.4f}\n")
 
             if early_stopping is not None:
                 early_stopping_counter = early_stopping(
@@ -442,6 +469,7 @@ def train(args):
             model_mustd.eval()
             running_mse, running_mae, running_cor = 0.0, 0.0, 0.0
             total_num, total_num_c = 0.0, 0.0
+            power_mse_sum, power_mae_sum, power_num = 0.0, 0.0, 0.0
             with torch.no_grad():
                 for i, tdata in enumerate(test_dataloader):
                     pred_time = inference(
@@ -462,6 +490,11 @@ def train(args):
                     running_cor += pearsoncor(pred_time, labels_time, reduction="sum")
                     total_num += labels_time.numel()
                     total_num_c += labels_time.shape[0] * labels_time.shape[2]
+                    if power_idx is not None:
+                        diff = pred_time[:, :, power_idx] - labels_time[:, :, power_idx]
+                        power_mse_sum += (diff * diff).sum().item()
+                        power_mae_sum += diff.abs().sum().item()
+                        power_num += diff.numel()
 
             running_mae = running_mae / total_num
             running_mse = running_mse / total_num
@@ -469,9 +502,15 @@ def train(args):
             print(
                 f"| [Test] mse {running_mse:5.4f} mae {running_mae:5.4f} corr {running_cor:5.4f}"
             )
+            if power_idx is not None and power_num > 0:
+                power_mse = power_mse_sum / power_num
+                power_mae = power_mae_sum / power_num
+                print(f"| [Test][Power] mse {power_mse:5.4f} mae {power_mae:5.4f}")
             save_file.write(
                 f"| [Test] mse {running_mse:5.4f} mae {running_mae:5.4f} corr {running_cor:5.4f}\n"
             )
+            if power_idx is not None and power_num > 0:
+                save_file.write(f"| [Test][Power] mse {power_mse:5.4f} mae {power_mae:5.4f}\n")
             if early_stopping is not None:
                 save_file.write(f"Early stopping counter is: {early_stopping_counter}\n")
             else:

@@ -190,7 +190,7 @@ def fft_reconstruct(y, k):
     return np.fft.irfft(keep, n=n)
 
 
-def compute_fourier_feature(series, freq, k, lookback_weeks=(1, 2, 3)):
+def compute_fourier_feature(series, freq, k, lookback_weeks=(1, 2, 3), weights=None):
     series = series.sort_index()
     day_steps = int((24 * 60) / pd.to_timedelta(freq).total_seconds() * 60)
     unique_dates = pd.to_datetime(series.index.date).unique()
@@ -205,6 +205,11 @@ def compute_fourier_feature(series, freq, k, lookback_weeks=(1, 2, 3)):
             values_by_date[day_start.date()] = day_series.values
 
     fourier_series = pd.Series(index=series.index, dtype=float)
+    if weights is None:
+        weights = np.ones(len(lookback_weeks), dtype=float)
+    weights = np.array(weights, dtype=float)
+    weights = weights / weights.sum()
+
     for d in pd.to_datetime(series.index.date).unique():
         d_date = pd.to_datetime(d).date()
         prior_values = []
@@ -217,8 +222,9 @@ def compute_fourier_feature(series, freq, k, lookback_weeks=(1, 2, 3)):
             prior_values.append(vals)
         if not prior_values:
             continue
-        avg_prior = np.mean(np.vstack(prior_values), axis=0)
-        recon = fft_reconstruct(avg_prior, k)
+        prior_matrix = np.vstack(prior_values)
+        weighted_prior = (prior_matrix.T @ weights).T
+        recon = fft_reconstruct(weighted_prior, k)
         day_start = pd.to_datetime(d_date)
         day_index = pd.date_range(day_start, day_start + pd.Timedelta(days=1) - pd.to_timedelta(freq), freq=freq)
         fourier_series.loc[day_index] = recon
@@ -334,6 +340,12 @@ def main():
         help="Number of FFT frequencies to keep for Fourier feature.",
     )
     parser.add_argument(
+        "--fourier_weights",
+        type=str,
+        default="0.1,0.3,0.6",
+        help="Comma-separated weights for lookback weeks (3w,2w,1w).",
+    )
+    parser.add_argument(
         "--exclude_from_month",
         type=int,
         default=0,
@@ -384,10 +396,12 @@ def main():
     time_df = create_time_features(base_df.index)
     holidays = load_holidays(args.holiday_path)
     is_holiday = base_df.index.normalize().strftime("%Y-%m-%d").isin(holidays)
+    weights = [float(w.strip()) for w in args.fourier_weights.split(",") if w.strip()]
     fourier_series = compute_fourier_feature(
         base_df[args.fourier_col],
         args.freq,
         args.fourier_k,
+        weights=weights,
     )
     exog_df = time_df.copy()
     exog_df["is_holiday"] = is_holiday.astype(int)

@@ -23,6 +23,7 @@ PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
   --feature_names_path "${FEATURE_NAMES_PATH}" \
   --checkpoint_dir "${CHECKPOINT_DIR}" \
   --feature "${FEATURE_NAME}" \
+  --plot_mode pred_only \
   --start_idx 0 \
   --num_sequences 200 \
   --batch_size 32 \

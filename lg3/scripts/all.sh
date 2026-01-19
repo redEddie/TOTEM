@@ -9,7 +9,8 @@ COMBINED_REVIN="${COMBINED_BASE}/revin"
 PROCESSED_COMBINED="lg3/data/processed_combined"
 EXOG_ROOT="lg3/data/exog_sources"
 
-EREPORT_COLS="MFR_068,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,Tcond"
+# EREPORT_COLS="MFR_068,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,Tcond"
+EREPORT_COLS="Power"
 SMARTCARE_COLS="Tod"
 FREQ="5min"
 EXCLUDE_FROM_MONTH=10
@@ -41,7 +42,8 @@ for SOURCE in "${SOURCE_ARR[@]}"; do
     --ereport_cols "${EREPORT_COLS}" \
     --smartcare_process_cols "${SMARTCARE_COLS}" \
     --exclude_from_month ${EXCLUDE_FROM_MONTH} \
-    --holiday_path "lg3/scripts/holiday.json"
+    --holiday_path "lg3/scripts/holiday.json" \
+    --fourier_weights "0.1,0.3,0.6"
  done
 
 # 2) per-source revin
@@ -146,8 +148,15 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --d_hid 512 \
   --nlayers 8 \
   --nhead 8 \
-  --baselr 0.0005 \
-  --batchsize 64
+  --baselr 0.001 \
+  --batchsize 128
 
 # 8) eval
-bash lg3/scripts/eval_forecaster_metrics.sh
+PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
+  --data_dir lg3/data/forecasting/Tin288_Tout288 \
+  --feature_names_path lg3/data/forecasting/Tin288_Tout288/feature_names.json \
+  --checkpoint_dir lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin288_Tout288_seed2021 \
+  --feature Power \
+  --plot_mode pred_only \
+  --save_each \
+  --output_dir lg3/results/non_overlap
