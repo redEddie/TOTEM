@@ -40,7 +40,6 @@ def read_csv_remove_nulls(path):
         except Exception as debug_e:
             print(f"[DEBUG] Failed to extract error context: {debug_e}")
         print(f"[SKIP] Skipping file due to read/parse failure: {os.path.basename(path)}")
-        pdb.set_trace()
         return None
 
 def parse_date_from_filename(path):
@@ -66,16 +65,17 @@ def load_data(data_dir, required_cols_list, use_auto_id=False): # Changed arg na
             continue
 
         df = drop_unnamed(df)
-        date = parse_date_from_filename(path)
-        if date is None or "Time" not in df.columns:
-            print(f"[WARN] Skipping {os.path.basename(path)}: Missing date or 'Time' column.")
-            pdb.set_trace()
-            continue
-
-        df["Timestamp"] = pd.to_datetime(
-            date.strftime("%Y-%m-%d") + " " + df["Time"].astype(str),
-            errors="coerce",
-        )
+        if "Timestamp" in df.columns:
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+        else:
+            date = parse_date_from_filename(path)
+            if date is None or "Time" not in df.columns:
+                print(f"[WARN] Skipping {os.path.basename(path)}: Missing date or 'Time' column.")
+                continue
+            df["Timestamp"] = pd.to_datetime(
+                date.strftime("%Y-%m-%d") + " " + df["Time"].astype(str),
+                errors="coerce",
+            )
         
         cols_to_keep = ["Timestamp"]
         if use_auto_id:
@@ -84,7 +84,6 @@ def load_data(data_dir, required_cols_list, use_auto_id=False): # Changed arg na
         # Ensure 'Auto Id' is in df.columns if use_auto_id is True
         if use_auto_id and "Auto Id" not in df.columns:
             print(f"[WARN] Skipping {os.path.basename(path)}: 'Auto Id' column missing but required.")
-            pdb.set_trace()
             continue
 
         col_aliases = {
@@ -118,9 +117,7 @@ def load_data(data_dir, required_cols_list, use_auto_id=False): # Changed arg na
                 print(f"[DEBUG] Used aliases: {used_aliases}")
             if any(col in missing_cols for col in ["VAP_Entha", "LIQ_Entha"]):
                 print(f"[WARN] Skipping {os.path.basename(path)} due to missing Entha columns.")
-                pdb.set_trace()
                 continue
-            pdb.set_trace()
 
         df = df[final_cols]
         frames.append(df)
@@ -141,8 +138,8 @@ def to_numeric(df, cols):
 def resample_ereport(df, freq, cols):
     df = to_numeric(df, cols)
     df = df.set_index("Timestamp")
-    df = df[cols].resample(freq, label="left", closed="left").mean()
-    return df
+    resampled = df[cols].resample(freq, label="left", closed="left").mean()
+    return resampled
 
 def create_time_features(dt_index):
     """Creates time-based features from a DatetimeIndex."""
@@ -173,11 +170,7 @@ def create_time_features(dt_index):
     return df_time
 
 def preprocess_smartcare_cols(df_smart, freq, process_cols_list):
-    """Aggregates specified SMARTCARE columns across all units."""
-    
-    # Ensure 'Auto Id' is present for grouping
-    if "Auto Id" not in df_smart.columns:
-        raise ValueError("SMARTCARE data must contain 'Auto Id' column for aggregation.")
+    """Aggregates specified SMARTCARE columns across all units, ignoring Auto Id."""
     
     # Only process columns specified in process_cols_list
     df_to_process = df_smart[["Timestamp"] + process_cols_list].copy().set_index("Timestamp")
@@ -248,6 +241,12 @@ def main():
         default="Tod",
         help="Comma-separated list of SMARTCARE columns to process and aggregate."
     )
+    parser.add_argument(
+        "--exclude_from_month",
+        type=int,
+        default=0,
+        help="Exclude data with month >= this value (e.g., 10 removes Oct/Nov/Dec).",
+    )
     # Args for Tod aggregation
     args = parser.parse_args()
 
@@ -255,10 +254,8 @@ def main():
     for label, path in [("EREPORT", args.ereport_dir), ("SMARTCARE", args.smartcare_dir)]:
         if not os.path.isdir(path):
             print(f"[ERROR] {label} directory not found: {path}")
-            pdb.set_trace()
         elif not any(name.endswith(".csv") for name in os.listdir(path)):
             print(f"[ERROR] {label} directory has no CSV files: {path}")
-            pdb.set_trace()
 
     existing_outputs = [
         os.path.join(args.output_dir, "lg3_train.csv"),
@@ -276,8 +273,8 @@ def main():
     print("Loading EREPORT data...")
     er_raw = load_data(args.ereport_dir, er_cols)
     
-    print(f"Loading SMARTCARE data (columns: {smartcare_process_cols} and 'Auto Id')...")
-    sc_raw = load_data(args.smartcare_dir, smartcare_process_cols, use_auto_id=True)
+    print(f"Loading SMARTCARE data (columns: {smartcare_process_cols})...")
+    sc_raw = load_data(args.smartcare_dir, smartcare_process_cols, use_auto_id=False)
     
     # --- 2. Process and Resample Data ---
     print(f"Resampling EREPORT data to {args.freq}...")
@@ -301,6 +298,8 @@ def main():
     # Drop rows where joins might have failed (especially for Tod)
     n_before = len(merged_df)
     merged_df = merged_df.dropna()
+    if args.exclude_from_month:
+        merged_df = merged_df[merged_df.index.month < args.exclude_from_month]
     n_after = len(merged_df)
     print(f"Dropped {n_before - n_after} rows with NaN values after merging.")
     

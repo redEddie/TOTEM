@@ -48,11 +48,19 @@ def create_time_series_dataloader(datapath="/data", batchsize=8):
     return dataloaders
 
 
-def loss_fn(loss_type, beta=1.0):
+def loss_fn(loss_type, beta=1.0, tau=0.9):
     if loss_type == "mse":
         loss = nn.MSELoss()
     elif loss_type == "smoothl1":
         loss = nn.SmoothL1Loss(beta=beta)
+    elif loss_type == "quantile":
+        if not (0.0 < tau < 1.0):
+            raise ValueError("quantile tau must be in (0, 1)")
+
+        def loss(pred, target):
+            diff = target - pred
+            return torch.mean(torch.maximum(tau * diff, (tau - 1.0) * diff))
+
     else:
         raise ValueError("Invalid type")
     return loss
@@ -70,6 +78,7 @@ def train_one_epoch(
     device,
     loss_type: str = "smoothl1",
     beta: float = 1.0,
+    tau: float = 0.9,
     onehot: bool = False,
     scheme: int = 2,
 ):
@@ -77,7 +86,7 @@ def train_one_epoch(
     running_loss_mu, last_loss_mu = 0.0, 0.0
     log_every = max(len(dataloader) // 3, 3)
 
-    lossfn = loss_fn(loss_type, beta=beta)
+    lossfn = loss_fn(loss_type, beta=beta, tau=tau)
     for i, data in enumerate(dataloader):
         x, y, codeids_x, codeids_y_labels = data
         x = x.to(device)
@@ -248,7 +257,10 @@ def train(args):
     if args.checkpoint:
         if not os.path.exists(args.checkpoint_path):
             os.makedirs(args.checkpoint_path)
-    early_stopping = EarlyStopping(patience=args.patience, path=args.checkpoint_path)
+    early_stopping = None
+    early_stopping_counter = 0
+    if args.patience > 0:
+        early_stopping = EarlyStopping(patience=args.patience, path=args.checkpoint_path)
 
     codebook = np.load(os.path.join(datapath, "codebook.npy"), allow_pickle=True)
     codebook = torch.from_numpy(codebook).to(device=device, dtype=torch.float32)
@@ -323,7 +335,9 @@ def train(args):
             scheduler,
             epoch,
             device,
+            loss_type=args.loss_type,
             beta=args.beta,
+            tau=args.quantile_tau,
             onehot=args.onehot,
             scheme=args.scheme,
         )
@@ -363,9 +377,10 @@ def train(args):
                 f"| [Val] mse {running_mse:5.4f} mae {running_mae:5.4f} corr {running_cor:5.4f}\n"
             )
 
-            early_stopping_counter = early_stopping(
-                running_mse, running_mae, {"decode": model_decode, "mustd": model_mustd}
-            )
+            if early_stopping is not None:
+                early_stopping_counter = early_stopping(
+                    running_mse, running_mae, {"decode": model_decode, "mustd": model_mustd}
+                )
 
         if test_dataloader is not None:
             model_decode.eval()
@@ -401,9 +416,12 @@ def train(args):
             save_file.write(
                 f"| [Test] mse {running_mse:5.4f} mae {running_mae:5.4f} corr {running_cor:5.4f}\n"
             )
-            save_file.write(f"Early stopping counter is: {early_stopping_counter}\n")
+            if early_stopping is not None:
+                save_file.write(f"Early stopping counter is: {early_stopping_counter}\n")
+            else:
+                save_file.write("Early stopping disabled.\n")
 
-        if early_stopping.early_stop:
+        if early_stopping is not None and early_stopping.early_stop:
             print("Early stopping....")
             save_file.write("Early stopping....")
             save_file.write("Take the test values right before the last early stopping counter = 0")
@@ -443,6 +461,8 @@ def default_argument_parser():
     parser.add_argument("--epochs", default=100, type=int)
     parser.add_argument("--steps", default=4, type=int)
     parser.add_argument("--beta", default=0.1, type=float)
+    parser.add_argument("--loss_type", default="smoothl1", type=str)
+    parser.add_argument("--quantile_tau", default=0.9, type=float)
     parser.add_argument("--onehot", action="store_true")
     parser.add_argument("--scheme", default=1, type=int)
     parser.add_argument("--d-model", default=64, type=int)

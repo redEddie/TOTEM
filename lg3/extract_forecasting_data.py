@@ -123,15 +123,18 @@ class ExtractData:
                  raise FileNotFoundError(f"No data files found for split '{split}' in {unit_data_path} or {self.args.input_dir}")
             all_files = [split_path]
             
-        df_list = []
+        x_list = []
+        y_list = []
         for f in all_files:
-            df_list.append(load_split_csv(f))
-        
-        combined_df = pd.concat(df_list, ignore_index=True)
+            df = load_split_csv(f)
+            values = df.to_numpy(dtype=np.float32)
+            x, y = build_sequences(values, self.args.seq_len, self.args.pred_len)
+            x_list.append(x)
+            y_list.append(y)
 
-        values = combined_df.to_numpy(dtype=np.float32)
-        x, y = build_sequences(values, self.args.seq_len, self.args.pred_len)
-        return x, y
+        x_all = np.concatenate(x_list, axis=0)
+        y_all = np.concatenate(y_list, axis=0)
+        return x_all, y_all
 
     def one_loop_forecasting(self, x_arr, y_arr, vqvae_model):
         x_original_all = []

@@ -1,4 +1,5 @@
 import argparse
+import json
 import glob
 import os
 
@@ -99,6 +100,7 @@ def main():
 
     sample_df = load_split(train_paths[0], cols=cols)
     num_features = sample_df.shape[1]
+    feature_names = list(sample_df.columns)
     revin_x = RevIN(num_features=num_features, affine=False, subtract_last=False).to(device)
     revin_y = RevIN(num_features=num_features, affine=False, subtract_last=False).to(device)
 
@@ -116,6 +118,12 @@ def main():
     x_test, y_test = process_paths(test_paths)
 
     os.makedirs(args.output_dir, exist_ok=True)
+    feature_map = {
+        "features": feature_names,
+        "index_by_feature": {name: idx for idx, name in enumerate(feature_names)},
+    }
+    with open(os.path.join(args.output_dir, "feature_map.json"), "w") as fh:
+        json.dump(feature_map, fh, indent=2)
     np.save(os.path.join(args.output_dir, "train_data_x.npy"), x_train)
     np.save(os.path.join(args.output_dir, "val_data_x.npy"), x_val)
     np.save(os.path.join(args.output_dir, "test_data_x.npy"), x_test)

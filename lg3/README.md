@@ -1,5 +1,18 @@
 # 🚀 LG3 예측 파이프라인 (LG3 Prediction Pipeline)
 
+## UPDATE
+- 리샘플링은 5분으로 설정하고 대신에 압축률을 높게 설정함.
+- Loss를 MSE, MAE에서 Quantile로 교체
+- Pdb는 덮어쓰기 때만 떠서 멈추도록 함.
+- all.sh: 멀티 소스( elec1_f2+ohsung_f2+snu )용 전체 파이프라인
+    - 소스별 prepare → 소스별 revin → revin 합치기 → VQ-VAE 학습
+    - 소스별 split을 smartcare_units 구조로 묶어 forecaster 입력 생성
+    - extract → forecaster 학습 → eval
+- elec1_f2.sh: elec1_f2 단일 소스 파이프라인 (prepare → revin → vqvae → extract → train → eval)
+- lg3/configs/lg3.json으로 config 이동 (스크립트에서 경로 변경 반영)
+
+
+
 이 저장소는 LG3 데이터의 전처리부터 토큰화, 최종 예측 모델(Forecaster) 학습까지의 전체 파이프라인을 포함하고 있습니다.
 
 ---
