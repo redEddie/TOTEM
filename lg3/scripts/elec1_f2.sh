@@ -3,6 +3,7 @@ set -e
 DATA_ROOT="data/elec1_f2"
 PROCESSED_DIR="lg3/data/processed"
 REVIN_DIR="lg3/data/revin"
+EXOG_DIR="lg3/data/exog"
 
 EREPORT_COLS="MFR_068,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,Tcond"
 SMARTCARE_COLS="Tod"
@@ -26,11 +27,13 @@ python lg3/prepare_lg3_data.py \
   --smartcare_dir "${DATA_ROOT}/SMARTCARE" \
   --freq "${FREQ}" \
   --output_dir "${PROCESSED_DIR}" \
+  --exog_output_dir "${EXOG_DIR}" \
   --train_ratio 0.7 \
   --val_ratio 0.1 \
   --ereport_cols "${EREPORT_COLS}" \
   --smartcare_process_cols "${SMARTCARE_COLS}" \
-  --exclude_from_month ${EXCLUDE_FROM_MONTH}
+  --exclude_from_month ${EXCLUDE_FROM_MONTH} \
+  --holiday_path "lg3/scripts/holiday.json"
 
 PYTHONPATH=. python -m lg3.save_revin_data \
   --input_dir "${PROCESSED_DIR}" \
@@ -50,6 +53,7 @@ PYTHONPATH=. python -m lg3.train_vqvae \
 
 PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --input_dir "${PROCESSED_DIR}" \
+  --exog_dir "${EXOG_DIR}" \
   --save_path "${FORECAST_SAVE}/" \
   --seq_len ${SEQ_LEN} \
   --pred_len ${PRED_LEN} \

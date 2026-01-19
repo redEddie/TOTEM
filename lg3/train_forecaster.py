@@ -13,8 +13,24 @@ from lg3.lib.utils.checkpoint import EarlyStopping
 from lg3.lib.utils.env import seed_all_rng
 
 
+class ExogMLP(nn.Module):
+    def __init__(self, exog_dim, out_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(exog_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, out_dim),
+        )
+
+    def forward(self, y_exog):
+        b, t, e = y_exog.shape
+        out = self.net(y_exog.reshape(b * t, e))
+        return out.reshape(b, t, -1)
+
+
 def create_time_series_dataloader(datapath="/data", batchsize=8):
     dataloaders = {}
+    exog_files = {}
     for split in ["train", "val", "test"]:
         timex_file = os.path.join(datapath, "%s_x_original.npy" % split)
         timex = np.load(timex_file)
@@ -34,9 +50,19 @@ def create_time_series_dataloader(datapath="/data", batchsize=8):
         codey_oracle = np.load(codey_oracle_file)
         codey_oracle = torch.from_numpy(codey_oracle).to(dtype=torch.int64)
 
+        exog_file = os.path.join(datapath, "%s_y_exog.npy" % split)
+        exog = None
+        if os.path.exists(exog_file):
+            exog = np.load(exog_file)
+            exog = torch.from_numpy(exog).to(dtype=torch.float32)
+            exog_files[split] = exog_file
+
         print("[Dataset][%s] %d of examples" % (split, timex.shape[0]))
 
-        dataset = torch.utils.data.TensorDataset(timex, timey, codex, codey_oracle)
+        if exog is not None:
+            dataset = torch.utils.data.TensorDataset(timex, timey, codex, codey_oracle, exog)
+        else:
+            dataset = torch.utils.data.TensorDataset(timex, timey, codex, codey_oracle)
         dataloaders[split] = torch.utils.data.DataLoader(
             dataset,
             batch_size=batchsize,
@@ -70,6 +96,7 @@ def train_one_epoch(
     dataloader,
     model_decode,
     model_mustd,
+    exog_mlp,
     codebook,
     compression,
     optimizer,
@@ -88,11 +115,17 @@ def train_one_epoch(
 
     lossfn = loss_fn(loss_type, beta=beta, tau=tau)
     for i, data in enumerate(dataloader):
-        x, y, codeids_x, codeids_y_labels = data
+        y_exog = None
+        if len(data) == 5:
+            x, y, codeids_x, codeids_y_labels, y_exog = data
+        else:
+            x, y, codeids_x, codeids_y_labels = data
         x = x.to(device)
         y = y.to(device)
         codeids_x = codeids_x.to(device)
         codeids_y_labels = codeids_y_labels.to(device)
+        if y_exog is not None:
+            y_exog = y_exog.to(device)
 
         _ = model_mustd.revin_in(x, "norm")
         norm_y = model_mustd.revin_out(y, "norm")
@@ -139,6 +172,8 @@ def train_one_epoch(
             loss = loss_decode + loss_mu + loss_std + loss_all
         elif scheme == 2:
             ytime = model_mustd.revin_in(ytime, "denorm")
+            if exog_mlp is not None and y_exog is not None:
+                ytime = ytime + exog_mlp(y_exog)
             loss_decode = lossfn(ytime, y)
             loss_mu = loss_std = torch.zeros((1,), device=device)
             loss = loss_decode
@@ -170,15 +205,22 @@ def inference(
     data,
     model_decode,
     model_mustd,
+    exog_mlp,
     codebook,
     compression,
     device,
     onehot: bool = False,
     scheme: int = 2,
 ):
-    x, y, codeids_x, codeids_y_labels = data
+    y_exog = None
+    if len(data) == 5:
+        x, y, codeids_x, codeids_y_labels, y_exog = data
+    else:
+        x, y, codeids_x, codeids_y_labels = data
     x = x.to(device)
     codeids_x = codeids_x.to(device)
+    if y_exog is not None:
+        y_exog = y_exog.to(device)
 
     B, TCin, Sin = codeids_x.shape
     B, TCout, Sout = codeids_y_labels.shape
@@ -220,6 +262,9 @@ def inference(
         ytime = model_mustd.revin_in(ytime, "denorm")
     else:
         raise ValueError("Unknown prediction scheme %d" % scheme)
+
+    if exog_mlp is not None and y_exog is not None:
+        ytime = ytime + exog_mlp(y_exog)
 
     return ytime
 
@@ -295,12 +340,20 @@ def train(args):
     model_mustd.revin_in = RevIN(num_features=Sin, affine=is_affine_revin)
     model_mustd.revin_out = RevIN(num_features=Sout, affine=is_affine_revin)
 
+    exog_mlp = None
+    exog_file = os.path.join(datapath, "train_y_exog.npy")
+    if os.path.exists(exog_file):
+        exog_dim = np.load(exog_file).shape[-1]
+        exog_mlp = ExogMLP(exog_dim, Sout).to(device)
+
     model_decode.to(device)
     model_mustd.to(device)
 
     num_iters = args.epochs * len(train_dataloader)
     step_lr_in_iters = args.steps * len(train_dataloader)
     model_params = list(model_decode.parameters()) + list(model_mustd.parameters())
+    if exog_mlp is not None:
+        model_params += list(exog_mlp.parameters())
     if args.optimizer == "sgd":
         optimizer = torch.optim.SGD(model_params, lr=args.baselr, momentum=0.9)
     elif args.optimizer == "adam":
@@ -329,6 +382,7 @@ def train(args):
             train_dataloader,
             model_decode,
             model_mustd,
+            exog_mlp,
             codebook,
             args.compression,
             optimizer,
@@ -353,6 +407,7 @@ def train(args):
                         vdata,
                         model_decode,
                         model_mustd,
+                        exog_mlp,
                         codebook,
                         args.compression,
                         device,
@@ -393,6 +448,7 @@ def train(args):
                         tdata,
                         model_decode,
                         model_mustd,
+                        exog_mlp,
                         codebook,
                         args.compression,
                         device,

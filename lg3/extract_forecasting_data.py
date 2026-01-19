@@ -28,6 +28,10 @@ def build_sequences(values, seq_len, pred_len):
     return x, y
 
 
+def build_exog_sequences(values, seq_len, pred_len):
+    return build_sequences(values, seq_len, pred_len)
+
+
 def time2codes(revin_data, compression_factor, vqvae_encoder, vqvae_quantizer):
     bs = revin_data.shape[0]
     nvar = revin_data.shape[1]
@@ -74,6 +78,8 @@ def save_files(path, data_dict, mode, save_codebook):
     np.save(os.path.join(path, f"{mode}_y_original.npy"), data_dict["y_original_arr"])
     np.save(os.path.join(path, f"{mode}_x_codes.npy"), data_dict["x_code_ids_all_arr"])
     np.save(os.path.join(path, f"{mode}_y_codes.npy"), data_dict["y_code_ids_all_arr"])
+    if data_dict.get("y_exog_arr") is not None:
+        np.save(os.path.join(path, f"{mode}_y_exog.npy"), data_dict["y_exog_arr"])
 
     if save_codebook:
         np.save(os.path.join(path, "codebook.npy"), data_dict["codebook"])
@@ -125,6 +131,7 @@ class ExtractData:
             
         x_list = []
         y_list = []
+        y_exog_list = []
         for f in all_files:
             df = load_split_csv(f)
             values = df.to_numpy(dtype=np.float32)
@@ -132,11 +139,27 @@ class ExtractData:
             x_list.append(x)
             y_list.append(y)
 
+            if self.args.exog_dir:
+                unit_name = os.path.basename(os.path.dirname(f))
+                if unit_name.startswith("unit_"):
+                    source = unit_name[len("unit_") :]
+                    exog_base = os.path.join(self.args.exog_dir, source)
+                else:
+                    exog_base = self.args.exog_dir
+                exog_path = os.path.join(exog_base, f"lg3_{split}_exog.npy")
+                exog_values = np.load(exog_path)
+                if len(exog_values) != len(values):
+                    raise ValueError(f"Exog length mismatch for {f}: {len(exog_values)} vs {len(values)}")
+                exog_values = np.nan_to_num(exog_values, nan=0.0)
+                _, y_exog = build_exog_sequences(exog_values, self.args.seq_len, self.args.pred_len)
+                y_exog_list.append(y_exog)
+
         x_all = np.concatenate(x_list, axis=0)
         y_all = np.concatenate(y_list, axis=0)
-        return x_all, y_all
+        y_exog_all = np.concatenate(y_exog_list, axis=0) if y_exog_list else None
+        return x_all, y_all, y_exog_all
 
-    def one_loop_forecasting(self, x_arr, y_arr, vqvae_model):
+    def one_loop_forecasting(self, x_arr, y_arr, y_exog_arr, vqvae_model):
         x_original_all = []
         y_original_all = []
         x_code_ids_all = []
@@ -218,6 +241,7 @@ class ExtractData:
         data_dict["x_reverted_all_arr"] = x_reverted_all_arr
         data_dict["y_reverted_all_arr"] = y_reverted_all_arr
         data_dict["codebook"] = codebook.detach().cpu().numpy()
+        data_dict["y_exog_arr"] = y_exog_arr
 
         if data_dict["x_original_arr"].shape[-1] != num_sensors:
             raise ValueError("Sensor dimension mismatch.")
@@ -247,24 +271,25 @@ class ExtractData:
             )
 
         print("-------------TRAIN-------------")
-        x_train, y_train = self._get_split("train")
-        train_data_dict = self.one_loop_forecasting(x_train, y_train, vqvae_model)
+        x_train, y_train, y_exog_train = self._get_split("train")
+        train_data_dict = self.one_loop_forecasting(x_train, y_train, y_exog_train, vqvae_model)
         save_files(self.args.save_path, train_data_dict, "train", save_codebook=True)
 
         print("-------------VAL-------------")
-        x_val, y_val = self._get_split("val")
-        val_data_dict = self.one_loop_forecasting(x_val, y_val, vqvae_model)
+        x_val, y_val, y_exog_val = self._get_split("val")
+        val_data_dict = self.one_loop_forecasting(x_val, y_val, y_exog_val, vqvae_model)
         save_files(self.args.save_path, val_data_dict, "val", save_codebook=False)
 
         print("-------------TEST-------------")
-        x_test, y_test = self._get_split("test")
-        test_data_dict = self.one_loop_forecasting(x_test, y_test, vqvae_model)
+        x_test, y_test, y_exog_test = self._get_split("test")
+        test_data_dict = self.one_loop_forecasting(x_test, y_test, y_exog_test, vqvae_model)
         save_files(self.args.save_path, test_data_dict, "test", save_codebook=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description="LG3 extract_forecasting_data")
     parser.add_argument("--input_dir", type=str, default="lg3/data/processed")
+    parser.add_argument("--exog_dir", type=str, default="", help="Root directory for exogenous npy files.")
     parser.add_argument("--save_path", type=str, required=True)
     parser.add_argument("--seq_len", type=int, default=96)
     parser.add_argument("--pred_len", type=int, default=96)

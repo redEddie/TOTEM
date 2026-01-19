@@ -144,30 +144,85 @@ def resample_ereport(df, freq, cols):
 def create_time_features(dt_index):
     """Creates time-based features from a DatetimeIndex."""
     df_time = pd.DataFrame(index=dt_index)
-    # Day cycle (24 steps)
     hour_of_day = df_time.index.hour.astype(int)
     df_time["day_sin"] = np.sin(2 * np.pi * hour_of_day / 24.0)
     df_time["day_cos"] = np.cos(2 * np.pi * hour_of_day / 24.0)
-    
-    # Week cycle (e.g., 168 steps for hourly, 168*4 for 15min)
-    # Calculate steps per week based on frequency
+
     try:
-        # Determine frequency in minutes or hours for accurate steps_per_week
-        # This part requires a bit more robust parsing of the freq string if it's complex
-        freq_timedelta = pd.to_timedelta(dt_index.freqstr) # freqstr is more reliable for timedelta
+        freq_timedelta = pd.to_timedelta(dt_index.freqstr)
         minutes_per_unit = freq_timedelta.total_seconds() / 60.0
-        if minutes_per_unit == 0: # Handle cases like 'S' for seconds
-             minutes_per_unit = 1 # Assume 1 minute for very high frequencies if needed
+        if minutes_per_unit == 0:
+            minutes_per_unit = 1
         steps_per_week = (7 * 24 * 60) / minutes_per_unit
     except Exception:
-        steps_per_week = 7 * 24 # Fallback to hourly if freq parsing fails
+        steps_per_week = 7 * 24
         print(f"[WARN] Could not accurately determine steps per week from frequency '{dt_index.freqstr}'. Assuming hourly.")
-
 
     k = np.arange(len(df_time), dtype=float)
     df_time["week_sin"] = np.sin(2 * np.pi * k / steps_per_week)
     df_time["week_cos"] = np.cos(2 * np.pi * k / steps_per_week)
     return df_time
+
+
+def load_holidays(path):
+    if not path:
+        return set()
+    with open(path, "r") as fh:
+        data = json.load(fh)
+    if isinstance(data, dict):
+        dates = []
+        for key in ("weekends", "public_holidays"):
+            dates.extend(data.get(key, []))
+        return set(dates)
+    return set(data)
+
+
+def fft_reconstruct(y, k):
+    y = np.asarray(y, dtype=float).reshape(-1)
+    n = len(y)
+    fft = np.fft.rfft(y)
+    keep = np.zeros_like(fft)
+    keep[0] = fft[0]
+    if k > 0 and len(fft) > 1:
+        mags = np.abs(fft)
+        idx = np.argsort(mags[1:])[-k:] + 1
+        keep[idx] = fft[idx]
+    return np.fft.irfft(keep, n=n)
+
+
+def compute_fourier_feature(series, freq, k, lookback_weeks=(1, 2, 3)):
+    series = series.sort_index()
+    day_steps = int((24 * 60) / pd.to_timedelta(freq).total_seconds() * 60)
+    unique_dates = pd.to_datetime(series.index.date).unique()
+    values_by_date = {}
+    for d in unique_dates:
+        day_start = pd.to_datetime(d)
+        day_index = pd.date_range(day_start, day_start + pd.Timedelta(days=1) - pd.to_timedelta(freq), freq=freq)
+        day_series = series.loc[day_start:day_start + pd.Timedelta(days=1) - pd.to_timedelta(freq)].reindex(day_index)
+        if day_series.isna().any():
+            continue
+        if len(day_series) == day_steps:
+            values_by_date[day_start.date()] = day_series.values
+
+    fourier_series = pd.Series(index=series.index, dtype=float)
+    for d in pd.to_datetime(series.index.date).unique():
+        d_date = pd.to_datetime(d).date()
+        prior_values = []
+        for w in lookback_weeks:
+            prior_date = d_date - pd.Timedelta(days=7 * w)
+            vals = values_by_date.get(prior_date)
+            if vals is None:
+                prior_values = []
+                break
+            prior_values.append(vals)
+        if not prior_values:
+            continue
+        avg_prior = np.mean(np.vstack(prior_values), axis=0)
+        recon = fft_reconstruct(avg_prior, k)
+        day_start = pd.to_datetime(d_date)
+        day_index = pd.date_range(day_start, day_start + pd.Timedelta(days=1) - pd.to_timedelta(freq), freq=freq)
+        fourier_series.loc[day_index] = recon
+    return fourier_series
 
 def preprocess_smartcare_cols(df_smart, freq, process_cols_list):
     """Aggregates specified SMARTCARE columns across all units, ignoring Auto Id."""
@@ -214,6 +269,19 @@ def save_splits(out_dir, prefix, train, val, test):
     np.save(os.path.join(out_dir, f"{prefix}_test.npy"), test.to_numpy(dtype=np.float32))
     print(f"Saved train/val/test .npy files to {out_dir}")
 
+
+def save_exog_splits(out_dir, prefix, train, val, test, feature_names):
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(os.path.join(out_dir, f"{prefix}_train_exog.npy"), train.to_numpy(dtype=np.float32))
+    np.save(os.path.join(out_dir, f"{prefix}_val_exog.npy"), val.to_numpy(dtype=np.float32))
+    np.save(os.path.join(out_dir, f"{prefix}_test_exog.npy"), test.to_numpy(dtype=np.float32))
+    feature_map = {
+        "features": feature_names,
+        "index_by_feature": {name: idx for idx, name in enumerate(feature_names)},
+    }
+    with open(os.path.join(out_dir, f"{prefix}_exog_map.json"), "w") as fh:
+        json.dump(feature_map, fh, indent=2)
+
 def parse_cols(arg):
     if not arg:
         raise ValueError("Column list is required. Provide --ereport_cols and --smartcare_process_cols.")
@@ -240,6 +308,30 @@ def main():
         type=str,
         default="Tod",
         help="Comma-separated list of SMARTCARE columns to process and aggregate."
+    )
+    parser.add_argument(
+        "--exog_output_dir",
+        type=str,
+        default="lg3/data/exog",
+        help="Where to save exogenous features as separate npy files.",
+    )
+    parser.add_argument(
+        "--holiday_path",
+        type=str,
+        default="",
+        help="Path to JSON list of YYYY-MM-DD holiday dates.",
+    )
+    parser.add_argument(
+        "--fourier_col",
+        type=str,
+        default="Power",
+        help="Column used to compute Fourier exogenous feature.",
+    )
+    parser.add_argument(
+        "--fourier_k",
+        type=int,
+        default=15,
+        help="Number of FFT frequencies to keep for Fourier feature.",
     )
     parser.add_argument(
         "--exclude_from_month",
@@ -287,19 +379,31 @@ def main():
         smartcare_process_cols
     )
     
-    # --- 3. Create Time Features ---
+    # --- 3. Create Exogenous Features ---
     print("Creating time features...")
     time_df = create_time_features(base_df.index)
-    
+    holidays = load_holidays(args.holiday_path)
+    is_holiday = base_df.index.normalize().strftime("%Y-%m-%d").isin(holidays)
+    fourier_series = compute_fourier_feature(
+        base_df[args.fourier_col],
+        args.freq,
+        args.fourier_k,
+    )
+    exog_df = time_df.copy()
+    exog_df["is_holiday"] = is_holiday.astype(int)
+    exog_df["fourier"] = fourier_series
+
     # --- 4. Merge all dataframes ---
     print("Merging dataframes...")
-    merged_df = base_df.join(smartcare_agg_df, how="left").join(time_df, how="left")
+    merged_df = base_df.join(smartcare_agg_df, how="left")
     
     # Drop rows where joins might have failed (especially for Tod)
     n_before = len(merged_df)
     merged_df = merged_df.dropna()
+    exog_df = exog_df.reindex(merged_df.index)
     if args.exclude_from_month:
         merged_df = merged_df[merged_df.index.month < args.exclude_from_month]
+        exog_df = exog_df[exog_df.index.month < args.exclude_from_month]
     n_after = len(merged_df)
     print(f"Dropped {n_before - n_after} rows with NaN values after merging.")
     
@@ -318,6 +422,8 @@ def main():
         print(f"Test range: {test.index.min()} -> {test.index.max()}")
     
     save_splits(args.output_dir, "lg3", train, val, test)
+    exog_train, exog_val, exog_test = time_split(exog_df, args.train_ratio, args.val_ratio)
+    save_exog_splits(args.exog_output_dir, "lg3", exog_train, exog_val, exog_test, list(exog_df.columns))
 
 if __name__ == "__main__":
     main()
