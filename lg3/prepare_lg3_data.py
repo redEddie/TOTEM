@@ -397,15 +397,16 @@ def main():
     holidays = load_holidays(args.holiday_path)
     is_holiday = base_df.index.normalize().strftime("%Y-%m-%d").isin(holidays)
     weights = [float(w.strip()) for w in args.fourier_weights.split(",") if w.strip()]
-    fourier_series = compute_fourier_feature(
-        base_df[args.fourier_col],
-        args.freq,
-        args.fourier_k,
-        weights=weights,
-    )
     exog_df = time_df.copy()
     exog_df["is_holiday"] = is_holiday.astype(int)
-    exog_df["fourier"] = fourier_series
+    if args.fourier_k > 0:
+        fourier_series = compute_fourier_feature(
+            base_df[args.fourier_col],
+            args.freq,
+            args.fourier_k,
+            weights=weights,
+        )
+        exog_df["fourier"] = fourier_series
 
     # --- 4. Merge all dataframes ---
     print("Merging dataframes...")

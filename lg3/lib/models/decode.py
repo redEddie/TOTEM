@@ -225,10 +225,12 @@ class XcodeYtimeDecoder(nn.Module):
         seq_in_len: int,
         seq_out_len: int,
         dropout: float = 0.0,
+        exog_dim: int = 0,
     ):
         super(XcodeYtimeDecoder, self).__init__()
         self.model_type = "Transformer"
         self.d_model = d_model
+        self.seq_in_len = seq_in_len
 
         self.has_linear_in = d_in != d_model
         if self.has_linear_in:
@@ -236,16 +238,30 @@ class XcodeYtimeDecoder(nn.Module):
 
         self.pos_encoder = PositionalEncoding(d_model, dropout, seq_in_len)
 
-        encoder_layers = TransformerEncoderLayer(
-            d_model,
-            nhead,
-            dim_feedforward=d_hid,
-            dropout=dropout,
-            batch_first=False,
-            norm_first=False,
+        self.encoder_layers = nn.ModuleList(
+            [
+                TransformerEncoderLayer(
+                    d_model,
+                    nhead,
+                    dim_feedforward=d_hid,
+                    dropout=dropout,
+                    batch_first=False,
+                    norm_first=False,
+                )
+                for _ in range(nlayers)
+            ]
         )
-        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         self.linear_out = nn.Linear(d_model * seq_in_len, seq_out_len)
+        self.exog_dim = exog_dim
+        if exog_dim > 0:
+            self.exog_proj = nn.Sequential(
+                nn.LayerNorm(exog_dim),
+                nn.Linear(exog_dim, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model * 2),
+            )
+        else:
+            self.exog_proj = None
 
         self._reset_parameters()
 
@@ -254,11 +270,34 @@ class XcodeYtimeDecoder(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, codes: torch.Tensor, codes_mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(
+        self,
+        codes: torch.Tensor,
+        codes_mask: torch.Tensor = None,
+        exog: torch.Tensor = None,
+    ) -> torch.Tensor:
         if self.has_linear_in:
             codes = self.linear_in(codes)
         codes = self.pos_encoder(codes)
-        codes = self.transformer_encoder(codes, codes_mask)
+        exog_ctx = None
+        if exog is not None and self.exog_proj is not None:
+            # exog: (B, Tout, E) -> FiLM params (B, 2*d_model)
+            exog_ctx = self.exog_proj(exog.mean(dim=1))
+            gamma, beta = exog_ctx.chunk(2, dim=-1)
+            if exog_ctx.shape[0] > 0:
+                repeat = codes.shape[1] // exog_ctx.shape[0]
+                gamma = gamma.repeat_interleave(repeat, dim=0)
+                beta = beta.repeat_interleave(repeat, dim=0)
+            gamma = gamma.unsqueeze(0).expand(self.seq_in_len, -1, -1)
+            beta = beta.unsqueeze(0).expand(self.seq_in_len, -1, -1)
+
+        if hasattr(self, "encoder_layers"):
+            for layer in self.encoder_layers:
+                codes = layer(codes, src_mask=codes_mask)
+                if exog_ctx is not None:
+                    codes = codes * (1 + gamma) + beta
+        else:
+            codes = self.transformer_encoder(codes, codes_mask)
         codes = torch.permute(codes, (1, 0, 2))
         codes = codes.flatten(start_dim=1)
         codes = self.linear_out(codes)

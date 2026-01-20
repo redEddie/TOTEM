@@ -14,20 +14,6 @@ from lg3.lib.utils.checkpoint import EarlyStopping
 from lg3.lib.utils.env import seed_all_rng
 
 
-class ExogMLP(nn.Module):
-    def __init__(self, exog_dim, out_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(exog_dim),
-            nn.Linear(exog_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, out_dim),
-        )
-
-    def forward(self, y_exog):
-        b, t, e = y_exog.shape
-        out = self.net(y_exog.reshape(b * t, e))
-        return out.reshape(b, t, -1)
 
 
 def create_time_series_dataloader(datapath="/data", batchsize=8):
@@ -98,7 +84,6 @@ def train_one_epoch(
     dataloader,
     model_decode,
     model_mustd,
-    exog_mlp,
     codebook,
     compression,
     optimizer,
@@ -147,7 +132,7 @@ def train_one_epoch(
         xcodes = xcodes.reshape((B * Sin, TCin, xcodes.shape[-1]))
         xcodes = torch.permute(xcodes, (1, 0, 2))
 
-        ytime = model_decode(xcodes)
+        ytime = model_decode(xcodes, exog=y_exog)
 
         ytime = ytime.reshape((B, Sout, Tout))
         ytime = torch.permute(ytime, (0, 2, 1))
@@ -174,8 +159,6 @@ def train_one_epoch(
             loss = loss_decode + loss_mu + loss_std + loss_all
         elif scheme == 2:
             ytime = model_mustd.revin_in(ytime, "denorm")
-            if exog_mlp is not None and y_exog is not None:
-                ytime = ytime + exog_mlp(y_exog)
             loss_decode = lossfn(ytime, y)
             loss_mu = loss_std = torch.zeros((1,), device=device)
             loss = loss_decode
@@ -207,7 +190,6 @@ def inference(
     data,
     model_decode,
     model_mustd,
-    exog_mlp,
     codebook,
     compression,
     device,
@@ -242,7 +224,7 @@ def inference(
     xcodes = xcodes.reshape((B * Sin, TCin, xcodes.shape[-1]))
     xcodes = torch.permute(xcodes, (1, 0, 2))
 
-    ytime = model_decode(xcodes)
+    ytime = model_decode(xcodes, exog=y_exog)
 
     ytime = ytime.reshape((B, Sout, Tout))
     ytime = torch.permute(ytime, (0, 2, 1))
@@ -264,9 +246,6 @@ def inference(
         ytime = model_mustd.revin_in(ytime, "denorm")
     else:
         raise ValueError("Unknown prediction scheme %d" % scheme)
-
-    if exog_mlp is not None and y_exog is not None:
-        ytime = ytime + exog_mlp(y_exog)
 
     return ytime
 
@@ -334,6 +313,11 @@ def train(args):
     val_dataloader = dataloaders["val"]
     test_dataloader = dataloaders["test"]
 
+    exog_dim = 0
+    exog_file = os.path.join(datapath, "train_y_exog.npy")
+    if os.path.exists(exog_file):
+        exog_dim = np.load(exog_file).shape[-1]
+
     model_decode = XcodeYtimeDecoder(
         d_in=dim,
         d_model=args.d_model,
@@ -343,6 +327,7 @@ def train(args):
         seq_in_len=args.Tin // compression,
         seq_out_len=args.Tout,
         dropout=0.0,
+        exog_dim=exog_dim,
     )
 
     model_mustd = MuStdModel(
@@ -355,20 +340,12 @@ def train(args):
     model_mustd.revin_in = RevIN(num_features=Sin, affine=is_affine_revin)
     model_mustd.revin_out = RevIN(num_features=Sout, affine=is_affine_revin)
 
-    exog_mlp = None
-    exog_file = os.path.join(datapath, "train_y_exog.npy")
-    if os.path.exists(exog_file):
-        exog_dim = np.load(exog_file).shape[-1]
-        exog_mlp = ExogMLP(exog_dim, Sout).to(device)
-
     model_decode.to(device)
     model_mustd.to(device)
 
     num_iters = args.epochs * len(train_dataloader)
     step_lr_in_iters = args.steps * len(train_dataloader)
     model_params = list(model_decode.parameters()) + list(model_mustd.parameters())
-    if exog_mlp is not None:
-        model_params += list(exog_mlp.parameters())
     if args.optimizer == "sgd":
         optimizer = torch.optim.SGD(model_params, lr=args.baselr, momentum=0.9)
     elif args.optimizer == "adam":
@@ -397,7 +374,6 @@ def train(args):
             train_dataloader,
             model_decode,
             model_mustd,
-            exog_mlp,
             codebook,
             args.compression,
             optimizer,
@@ -423,7 +399,6 @@ def train(args):
                         vdata,
                         model_decode,
                         model_mustd,
-                        exog_mlp,
                         codebook,
                         args.compression,
                         device,
@@ -476,7 +451,6 @@ def train(args):
                         tdata,
                         model_decode,
                         model_mustd,
-                        exog_mlp,
                         codebook,
                         args.compression,
                         device,

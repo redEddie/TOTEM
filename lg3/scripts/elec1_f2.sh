@@ -34,7 +34,8 @@ python lg3/prepare_lg3_data.py \
   --smartcare_process_cols "${SMARTCARE_COLS}" \
   --exclude_from_month ${EXCLUDE_FROM_MONTH} \
   --holiday_path "lg3/scripts/holiday.json" \
-  --fourier_weights "0.1,0.3,0.6"
+  --fourier_k 0 \
+  --fourier_weights "0,0.5,0.5"
 
 PYTHONPATH=. python -m lg3.save_revin_data \
   --input_dir "${PROCESSED_DIR}" \

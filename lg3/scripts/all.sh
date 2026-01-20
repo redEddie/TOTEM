@@ -1,6 +1,6 @@
 set -e
 
-SOURCES="elec1_f2,ohsung_f2,snu"
+SOURCES="elec1_f2,ohsung_f2"
 DATA_ROOT="data"
 PROCESSED_ROOT="lg3/data/processed_sources"
 REVIN_ROOT="lg3/data/revin_sources"
@@ -19,6 +19,7 @@ SEQ_LEN=288
 PRED_LEN=288
 BATCH_SIZE=2048
 GPU=1
+LRS="0.0001,0.001"
 
 VQVAE_CONFIG="lg3/scripts/lg3.json"
 VQVAE_SAVE="lg3/saved_models/"
@@ -43,7 +44,8 @@ for SOURCE in "${SOURCE_ARR[@]}"; do
     --smartcare_process_cols "${SMARTCARE_COLS}" \
     --exclude_from_month ${EXCLUDE_FROM_MONTH} \
     --holiday_path "lg3/scripts/holiday.json" \
-    --fourier_weights "0.1,0.3,0.6"
+    --fourier_k 0 \
+    --fourier_weights "0,0.5,0.5"
  done
 
 # 2) per-source revin
@@ -130,26 +132,29 @@ PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --compression_factor ${COMPRESSION} \
   --trained_vqvae_model_path "${TRAINED_VQVAE_PATH}"
 
-# 7) train forecaster
-PYTHONPATH=. python -m lg3.train_forecaster \
-  --data-type lg3 \
-  --Tin ${SEQ_LEN} \
-  --Tout ${PRED_LEN} \
-  --compression ${COMPRESSION} \
-  --cuda-id ${GPU} \
-  --seed 2021 \
-  --data_path "${FORECAST_SAVE}" \
-  --codebook_size 256 \
-  --checkpoint \
-  --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin${SEQ_LEN}_Tout${PRED_LEN}_seed2021" \
-  --file_save_path "lg3/results/" \
-  --patience 5 \
-  --d-model 128 \
-  --d_hid 512 \
-  --nlayers 8 \
-  --nhead 8 \
-  --baselr 0.001 \
-  --batchsize 128
+# 7) train forecaster (multiple learning rates)
+IFS=',' read -r -a LR_ARR <<< "$LRS"
+for lr in "${LR_ARR[@]}"; do
+  PYTHONPATH=. python -m lg3.train_forecaster \
+    --data-type lg3 \
+    --Tin ${SEQ_LEN} \
+    --Tout ${PRED_LEN} \
+    --compression ${COMPRESSION} \
+    --cuda-id ${GPU} \
+    --seed 2021 \
+    --data_path "${FORECAST_SAVE}" \
+    --codebook_size 256 \
+    --checkpoint \
+    --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin${SEQ_LEN}_Tout${PRED_LEN}_seed2021_lr${lr}" \
+    --file_save_path "lg3/results/" \
+    --patience 5 \
+    --d-model 128 \
+    --d_hid 512 \
+    --nlayers 8 \
+    --nhead 8 \
+    --baselr ${lr} \
+    --batchsize 128
+done
 
 # 8) eval
 PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
