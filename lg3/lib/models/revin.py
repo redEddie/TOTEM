@@ -60,6 +60,23 @@ class RevIN(nn.Module):
             x = x + self.affine_bias
         return x
 
+
+class GlobalNorm(nn.Module):
+    def __init__(self, mean: torch.Tensor, stdev: torch.Tensor, eps: float = 1e-6):
+        super().__init__()
+        if mean.ndim != 1 or stdev.ndim != 1:
+            raise ValueError("mean/stdev must be 1D tensors (features,)")
+        self.eps = eps
+        self.register_buffer("mean", mean.view(1, 1, -1))
+        self.register_buffer("stdev", stdev.view(1, 1, -1))
+
+    def forward(self, x, mode: str):
+        if mode == "norm":
+            return (x - self.mean) / (self.stdev + self.eps)
+        if mode == "denorm":
+            return x * (self.stdev + self.eps) + self.mean
+        raise NotImplementedError
+
     def _denormalize(self, x):
         if self.affine:
             print('in self affine')

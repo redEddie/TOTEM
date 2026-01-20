@@ -5,9 +5,6 @@ import os
 
 import numpy as np
 import pandas as pd
-import torch
-
-from lg3.lib.models.revin import RevIN
 
 
 def load_split(path, cols=None):
@@ -34,28 +31,29 @@ def build_sequences(values, seq_len, pred_len):
     return x, y
 
 
-def revin_normalize(arr, revin_layer, batch_size, device):
-    outputs = []
-    for i in range(0, arr.shape[0], batch_size):
-        batch = torch.tensor(arr[i : i + batch_size], dtype=torch.float32, device=device)
-        out = revin_layer(batch, "norm").detach().cpu().numpy()
-        outputs.append(out)
-    return np.concatenate(outputs, axis=0)
+def compute_global_stats(paths, cols):
+    values = []
+    for path in paths:
+        df = load_split(path, cols=cols)
+        values.append(df.to_numpy(dtype=np.float32))
+    all_values = np.concatenate(values, axis=0)
+    mean = all_values.mean(axis=0)
+    stdev = all_values.std(axis=0) + 1e-6
+    return mean, stdev
 
 
 def flatten_sensors(arr):
     return np.swapaxes(arr, 1, 2).reshape((-1, arr.shape[1]))
 
 
-def process_split(df, seq_len, pred_len, revin_x, revin_y, batch_size, device):
+def process_split(df, seq_len, pred_len, mean, stdev):
     values = df.to_numpy(dtype=np.float32)
+    values = (values - mean) / stdev
     x, y = build_sequences(values, seq_len, pred_len)
-    x_norm = revin_normalize(x, revin_x, batch_size, device)
-    y_norm = revin_normalize(y, revin_y, batch_size, device)
     if seq_len != pred_len:
         raise ValueError("seq_len must equal pred_len to flatten sensors.")
-    x_flat = flatten_sensors(x_norm)
-    y_flat = flatten_sensors(y_norm)
+    x_flat = flatten_sensors(x)
+    y_flat = flatten_sensors(y)
     return x_flat, y_flat
 
 
@@ -80,7 +78,6 @@ def main():
     parser.add_argument("--cols", type=str, default="")
     args = parser.parse_args()
 
-    device = "cuda:%d" % args.gpu if torch.cuda.is_available() else "cpu"
     cols = [c.strip() for c in args.cols.split(",") if c.strip()]
     cols = cols if cols else None
 
@@ -99,16 +96,14 @@ def main():
             )
 
     sample_df = load_split(train_paths[0], cols=cols)
-    num_features = sample_df.shape[1]
     feature_names = list(sample_df.columns)
-    revin_x = RevIN(num_features=num_features, affine=False, subtract_last=False).to(device)
-    revin_y = RevIN(num_features=num_features, affine=False, subtract_last=False).to(device)
+    mean, stdev = compute_global_stats(train_paths, cols)
 
     def process_paths(paths):
         xs, ys = [], []
         for path in paths:
             df = load_split(path, cols=cols)
-            x, y = process_split(df, args.seq_len, args.pred_len, revin_x, revin_y, args.batch_size, device)
+            x, y = process_split(df, args.seq_len, args.pred_len, mean, stdev)
             xs.append(x)
             ys.append(y)
         return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
@@ -124,6 +119,12 @@ def main():
     }
     with open(os.path.join(args.output_dir, "feature_map.json"), "w") as fh:
         json.dump(feature_map, fh, indent=2)
+    with open(os.path.join(args.output_dir, "norm_stats.json"), "w") as fh:
+        json.dump(
+            {"mean": mean.tolist(), "stdev": stdev.tolist(), "features": feature_names},
+            fh,
+            indent=2,
+        )
     np.save(os.path.join(args.output_dir, "train_data_x.npy"), x_train)
     np.save(os.path.join(args.output_dir, "val_data_x.npy"), x_val)
     np.save(os.path.join(args.output_dir, "test_data_x.npy"), x_test)

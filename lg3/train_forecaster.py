@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 import numpy as np
@@ -8,7 +9,7 @@ import torch.nn.functional as F
 
 from lg3.lib.models.decode import XcodeYtimeDecoder, MuStdModel
 from lg3.lib.models.metrics import pearsoncor
-from lg3.lib.models.revin import RevIN
+from lg3.lib.models.revin import GlobalNorm
 from lg3.lib.utils.checkpoint import EarlyStopping
 from lg3.lib.utils.env import seed_all_rng
 
@@ -249,7 +250,6 @@ def train(args):
     batchsize = params["batchsize"]
     dataroot = params["dataroot"]
     Sin, Sout = params["Sin"], params["Sout"]
-    is_affine_revin = False
     compression = args.compression
 
     datapath = dataroot
@@ -292,8 +292,11 @@ def train(args):
         dropout=0.2,
         is_mlp=True,
     )
-    model_mustd.revin_in = RevIN(num_features=Sin, affine=is_affine_revin)
-    model_mustd.revin_out = RevIN(num_features=Sout, affine=is_affine_revin)
+    norm_mean, norm_stdev = load_norm_stats(dataroot, Sin)
+    mean_t = torch.tensor(norm_mean, device=device)
+    stdev_t = torch.tensor(norm_stdev, device=device)
+    model_mustd.revin_in = GlobalNorm(mean_t, stdev_t)
+    model_mustd.revin_out = GlobalNorm(mean_t, stdev_t)
 
     model_decode.to(device)
     model_mustd.to(device)
@@ -440,6 +443,19 @@ def get_params(data_type, data_path, batchsize_override):
     return {"dataroot": dataroot, "batchsize": batchsize, "Sin": Sin, "Sout": Sout}
 
 
+def load_norm_stats(dataroot, num_features):
+    stats_path = os.path.join(dataroot, "norm_stats.json")
+    if not os.path.exists(stats_path):
+        raise FileNotFoundError(f"Missing norm_stats.json in {dataroot}")
+    with open(stats_path, "r") as fh:
+        stats = json.load(fh)
+    mean = np.array(stats["mean"], dtype=np.float32)
+    stdev = np.array(stats["stdev"], dtype=np.float32)
+    if mean.shape[0] != num_features:
+        raise ValueError("norm_stats feature count mismatch")
+    return mean, stdev
+
+
 def default_argument_parser():
     parser = argparse.ArgumentParser(description="LG3 Code Prediction")
     parser.add_argument("--resume", action="store_true")
@@ -464,7 +480,7 @@ def default_argument_parser():
     parser.add_argument("--loss_type", default="smoothl1", type=str)
     parser.add_argument("--quantile_tau", default=0.9, type=float)
     parser.add_argument("--onehot", action="store_true")
-    parser.add_argument("--scheme", default=1, type=int)
+    parser.add_argument("--scheme", default=2, type=int)
     parser.add_argument("--d-model", default=64, type=int)
     parser.add_argument("--d_hid", default=256, type=int)
     parser.add_argument("--nhead", default=4, type=int)

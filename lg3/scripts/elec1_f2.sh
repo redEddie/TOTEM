@@ -57,7 +57,8 @@ PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --gpu ${GPU} \
   --batch_size 256 \
   --compression_factor ${COMPRESSION} \
-  --trained_vqvae_model_path "${TRAINED_VQVAE_PATH}"
+  --trained_vqvae_model_path "${TRAINED_VQVAE_PATH}" \
+  --norm_stats "${REVIN_DIR}/norm_stats.json"
 
 PYTHONPATH=. python -m lg3.train_forecaster \
   --data-type lg3 \

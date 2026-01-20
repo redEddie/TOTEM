@@ -3,10 +3,9 @@ import os
 import glob
 
 import numpy as np
+import json
 import pandas as pd
 import torch
-
-from lg3.lib.models.revin import RevIN
 
 
 def load_split_csv(path):
@@ -45,7 +44,7 @@ def time2codes(revin_data, compression_factor, vqvae_encoder, vqvae_quantizer):
     return codes, code_ids, embedding_weight
 
 
-def codes2time(code_ids, codebook, compression_factor, vqvae_decoder, revin_layer):
+def codes2time(code_ids, codebook, compression_factor, vqvae_decoder, mean, stdev):
     bs = code_ids.shape[0]
     nvars = code_ids.shape[1]
     compressed_len = code_ids.shape[2]
@@ -64,7 +63,7 @@ def codes2time(code_ids, codebook, compression_factor, vqvae_decoder, revin_laye
         prediction_recon = vqvae_decoder(quantized_swaped.to(device), compression_factor)
         prediction_recon_reshaped = prediction_recon.reshape(bs, nvars, prediction_recon.shape[-1])
         predictions_revin_space = torch.swapaxes(prediction_recon_reshaped, 1, 2)
-        predictions_original_space = revin_layer(predictions_revin_space, "denorm")
+        predictions_original_space = predictions_revin_space * stdev + mean
 
     return predictions_revin_space, predictions_original_space
 
@@ -110,8 +109,38 @@ class ExtractData:
                     self.feature_names = load_split_csv(sample_path).columns.tolist()
             else:
                 self.feature_names = load_split_csv(all_files[0]).columns.tolist()
-        self.revin_layer_x = RevIN(num_features=enc_in, affine=False, subtract_last=False)
-        self.revin_layer_y = RevIN(num_features=enc_in, affine=False, subtract_last=False)
+        mean, stdev = self._load_norm_stats(enc_in)
+        self.norm_mean = torch.tensor(mean, dtype=torch.float32, device=self.device).view(1, 1, -1)
+        self.norm_stdev = torch.tensor(stdev, dtype=torch.float32, device=self.device).view(1, 1, -1)
+
+    def _load_norm_stats(self, enc_in):
+        if self.args.norm_stats and os.path.exists(self.args.norm_stats):
+            with open(self.args.norm_stats, "r") as fh:
+                stats = json.load(fh)
+            mean = np.array(stats["mean"], dtype=np.float32)
+            stdev = np.array(stats["stdev"], dtype=np.float32)
+            return mean, stdev
+
+        unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
+        all_files = glob.glob(os.path.join(unit_data_path, "unit_*/lg3_train.csv"))
+        if not all_files:
+            sample_path = os.path.join(self.args.input_dir, "lg3_train.csv")
+            if not os.path.exists(sample_path):
+                raise FileNotFoundError(
+                    f"No train data files found in {unit_data_path} or {self.args.input_dir} to compute stats."
+                )
+            all_files = [sample_path]
+
+        values = []
+        for path in all_files:
+            df = load_split_csv(path)
+            values.append(df.to_numpy(dtype=np.float32))
+        all_values = np.concatenate(values, axis=0)
+        mean = all_values.mean(axis=0)
+        stdev = all_values.std(axis=0) + 1e-6
+        if mean.shape[0] != enc_in:
+            raise ValueError("Normalization stats feature count mismatch.")
+        return mean, stdev
 
     def _get_split(self, split):
         unit_data_path = os.path.join(self.args.input_dir, "smartcare_units")
@@ -164,8 +193,8 @@ class ExtractData:
             batch_x = batch_x.float().to(self.device)
             batch_y = batch_y.float().to(self.device)
 
-            x_in_revin_space = self.revin_layer_x(batch_x, "norm")
-            y_in_revin_space = self.revin_layer_y(batch_y, "norm")
+            x_in_revin_space = (batch_x - self.norm_mean) / self.norm_stdev
+            y_in_revin_space = (batch_y - self.norm_mean) / self.norm_stdev
 
             x_codes, x_code_ids, codebook = time2codes(
                 x_in_revin_space.permute(0, 2, 1),
@@ -188,14 +217,16 @@ class ExtractData:
                 codebook,
                 self.args.compression_factor,
                 vqvae_model.decoder,
-                self.revin_layer_x,
+                self.norm_mean,
+                self.norm_stdev,
             )
             y_predictions_revin_space, y_predictions_original_space = codes2time(
                 y_code_ids,
                 codebook,
                 self.args.compression_factor,
                 vqvae_model.decoder,
-                self.revin_layer_y,
+                self.norm_mean,
+                self.norm_stdev,
             )
 
             x_reverted_all.append(x_predictions_original_space.detach().cpu().numpy())
@@ -245,6 +276,16 @@ class ExtractData:
                 os.path.join(self.args.save_path, "feature_names.json"),
                 orient="values",
             )
+        with open(os.path.join(self.args.save_path, "norm_stats.json"), "w") as fh:
+            json.dump(
+                {
+                    "mean": self.norm_mean.squeeze().detach().cpu().numpy().tolist(),
+                    "stdev": self.norm_stdev.squeeze().detach().cpu().numpy().tolist(),
+                    "features": self.feature_names if self.feature_names else [],
+                },
+                fh,
+                indent=2,
+            )
 
         print("-------------TRAIN-------------")
         x_train, y_train = self._get_split("train")
@@ -273,6 +314,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--compression_factor", type=int, default=4)
     parser.add_argument("--trained_vqvae_model_path", type=str, required=True)
+    parser.add_argument("--norm_stats", type=str, default="", help="Path to norm_stats.json")
     args = parser.parse_args()
 
     exp = ExtractData(args)

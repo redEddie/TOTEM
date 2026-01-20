@@ -141,34 +141,6 @@ def resample_ereport(df, freq, cols):
     resampled = df[cols].resample(freq, label="left", closed="left").mean()
     return resampled
 
-def create_time_features(dt_index):
-    """Creates time-based features from a DatetimeIndex."""
-    df_time = pd.DataFrame(index=dt_index)
-    # Day cycle (24 steps)
-    hour_of_day = df_time.index.hour.astype(int)
-    df_time["day_sin"] = np.sin(2 * np.pi * hour_of_day / 24.0)
-    df_time["day_cos"] = np.cos(2 * np.pi * hour_of_day / 24.0)
-    
-    # Week cycle (e.g., 168 steps for hourly, 168*4 for 15min)
-    # Calculate steps per week based on frequency
-    try:
-        # Determine frequency in minutes or hours for accurate steps_per_week
-        # This part requires a bit more robust parsing of the freq string if it's complex
-        freq_timedelta = pd.to_timedelta(dt_index.freqstr) # freqstr is more reliable for timedelta
-        minutes_per_unit = freq_timedelta.total_seconds() / 60.0
-        if minutes_per_unit == 0: # Handle cases like 'S' for seconds
-             minutes_per_unit = 1 # Assume 1 minute for very high frequencies if needed
-        steps_per_week = (7 * 24 * 60) / minutes_per_unit
-    except Exception:
-        steps_per_week = 7 * 24 # Fallback to hourly if freq parsing fails
-        print(f"[WARN] Could not accurately determine steps per week from frequency '{dt_index.freqstr}'. Assuming hourly.")
-
-
-    k = np.arange(len(df_time), dtype=float)
-    df_time["week_sin"] = np.sin(2 * np.pi * k / steps_per_week)
-    df_time["week_cos"] = np.cos(2 * np.pi * k / steps_per_week)
-    return df_time
-
 def preprocess_smartcare_cols(df_smart, freq, process_cols_list):
     """Aggregates specified SMARTCARE columns across all units, ignoring Auto Id."""
     
@@ -287,13 +259,9 @@ def main():
         smartcare_process_cols
     )
     
-    # --- 3. Create Time Features ---
-    print("Creating time features...")
-    time_df = create_time_features(base_df.index)
-    
-    # --- 4. Merge all dataframes ---
+    # --- 3. Merge all dataframes ---
     print("Merging dataframes...")
-    merged_df = base_df.join(smartcare_agg_df, how="left").join(time_df, how="left")
+    merged_df = base_df.join(smartcare_agg_df, how="left")
     
     # Drop rows where joins might have failed (especially for Tod)
     n_before = len(merged_df)
