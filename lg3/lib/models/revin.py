@@ -71,10 +71,12 @@ class GlobalNorm(nn.Module):
         self.register_buffer("stdev", stdev.view(1, 1, -1))
 
     def forward(self, x, mode: str):
+        mean = self.mean.to(x.device)
+        stdev = self.stdev.to(x.device)
         if mode == "norm":
-            return (x - self.mean) / (self.stdev + self.eps)
+            return (x - mean) / (stdev + self.eps)
         if mode == "denorm":
-            return x * (self.stdev + self.eps) + self.mean
+            return x * (stdev + self.eps) + mean
         raise NotImplementedError
 
     def _denormalize(self, x):

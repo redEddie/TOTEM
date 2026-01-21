@@ -451,6 +451,10 @@ def load_norm_stats(dataroot, num_features):
         stats = json.load(fh)
     mean = np.array(stats["mean"], dtype=np.float32)
     stdev = np.array(stats["stdev"], dtype=np.float32)
+    if mean.ndim == 0:
+        mean = mean.reshape(1)
+    if stdev.ndim == 0:
+        stdev = stdev.reshape(1)
     if mean.shape[0] != num_features:
         raise ValueError("norm_stats feature count mismatch")
     return mean, stdev

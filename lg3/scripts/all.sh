@@ -1,6 +1,6 @@
 set -e
 
-SOURCES="elec1_f2,ohsung_f2,snu"
+SOURCES="elec1_f2,ohsung_f2"
 DATA_ROOT="data"
 PROCESSED_ROOT="lg3/data/processed_sources"
 REVIN_ROOT="lg3/data/revin_sources"
@@ -8,10 +8,11 @@ COMBINED_BASE="lg3/data/combined"
 COMBINED_REVIN="${COMBINED_BASE}/revin"
 PROCESSED_COMBINED="lg3/data/processed_combined"
 
-EREPORT_COLS="MFR_068,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,Tcond"
-SMARTCARE_COLS="Tod"
+EREPORT_COLS="Power"
+SMARTCARE_COLS=""
 FREQ="5min"
 EXCLUDE_FROM_MONTH=10
+DROP_ZERO_RATIO=0.9
 
 SEQ_LEN=288
 PRED_LEN=288
@@ -38,7 +39,8 @@ for SOURCE in "${SOURCE_ARR[@]}"; do
     --val_ratio 0.1 \
     --ereport_cols "${EREPORT_COLS}" \
     --smartcare_process_cols "${SMARTCARE_COLS}" \
-    --exclude_from_month ${EXCLUDE_FROM_MONTH}
+    --exclude_from_month ${EXCLUDE_FROM_MONTH} \
+    --drop_zero_ratio_threshold ${DROP_ZERO_RATIO}
  done
 
 # 2) per-source revin
@@ -112,7 +114,42 @@ for source in sources:
 print("[DONE] combined forecaster splits ->", output_dir)
 PY
 
-# 6) extract forecasting data
+# 6) build global norm stats for combined train data
+python - <<PY
+import glob
+import json
+import os
+import numpy as np
+import pandas as pd
+
+root = "${PROCESSED_COMBINED}"
+unit_root = os.path.join(root, "smartcare_units")
+train_files = glob.glob(os.path.join(unit_root, "unit_*", "lg3_train.csv"))
+if not train_files:
+    train_files = [os.path.join(root, "lg3_train.csv")]
+    if not os.path.exists(train_files[0]):
+        raise FileNotFoundError(f"No train CSV found in {unit_root} or {root}")
+
+values = []
+feature_names = None
+for path in train_files:
+    df = pd.read_csv(path, index_col=0, parse_dates=True)
+    df = df.select_dtypes(include=[np.number]).dropna(how="any")
+    if feature_names is None:
+        feature_names = df.columns.tolist()
+    values.append(df.to_numpy(dtype=np.float32))
+
+all_values = np.concatenate(values, axis=0)
+mean = all_values.mean(axis=0)
+stdev = all_values.std(axis=0) + 1e-6
+
+stats_path = os.path.join(root, "norm_stats.json")
+with open(stats_path, "w") as fh:
+    json.dump({"mean": mean.tolist(), "stdev": stdev.tolist(), "features": feature_names}, fh, indent=2)
+print("[DONE] norm stats ->", stats_path)
+PY
+
+# 7) extract forecasting data
 PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --input_dir "${PROCESSED_COMBINED}" \
   --save_path "${FORECAST_SAVE}/" \
@@ -122,9 +159,10 @@ PYTHONPATH=. python -m lg3.extract_forecasting_data \
   --gpu ${GPU} \
   --batch_size 1024 \
   --compression_factor ${COMPRESSION} \
-  --trained_vqvae_model_path "${TRAINED_VQVAE_PATH}"
+  --trained_vqvae_model_path "${TRAINED_VQVAE_PATH}" \
+  --norm_stats "${PROCESSED_COMBINED}/norm_stats.json"
 
-# 7) train forecaster
+# 8) train forecaster
 PYTHONPATH=. python -m lg3.train_forecaster \
   --data-type lg3 \
   --Tin ${SEQ_LEN} \
@@ -137,7 +175,7 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --checkpoint \
   --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin${SEQ_LEN}_Tout${PRED_LEN}_seed2021" \
   --file_save_path "lg3/results/" \
-  --patience 20 \
+  --patience 5 \
   --d-model 128 \
   --d_hid 512 \
   --nlayers 8 \
@@ -145,5 +183,5 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --baselr 0.0005 \
   --batchsize 64
 
-# 8) eval
+# 9) eval
 bash lg3/scripts/eval_forecaster_metrics.sh

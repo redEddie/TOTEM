@@ -1,6 +1,7 @@
 import argparse
 import os
 import glob
+import sys
 
 import numpy as np
 import json
@@ -261,6 +262,10 @@ class ExtractData:
         return data_dict
 
     def extract_data(self):
+        if self.args.add_forecasting_lib:
+            forecasting_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "forecasting"))
+            if forecasting_root not in sys.path:
+                sys.path.insert(0, forecasting_root)
         vqvae_model = torch.load(self.args.trained_vqvae_model_path, weights_only=False)
         vqvae_model.to(self.device)
         vqvae_model.eval()
@@ -315,6 +320,11 @@ def main():
     parser.add_argument("--compression_factor", type=int, default=4)
     parser.add_argument("--trained_vqvae_model_path", type=str, required=True)
     parser.add_argument("--norm_stats", type=str, default="", help="Path to norm_stats.json")
+    parser.add_argument(
+        "--add_forecasting_lib",
+        action="store_true",
+        help="Add forecasting/ to sys.path for loading generalist tokenizer checkpoints.",
+    )
     args = parser.parse_args()
 
     exp = ExtractData(args)

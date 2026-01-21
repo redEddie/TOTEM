@@ -174,6 +174,22 @@ def time_split(df, train_ratio, val_ratio):
     test = df.iloc[val_end:]
     return train, val, test
 
+
+def drop_high_zero_days(df, target_col, threshold):
+    if threshold <= 0:
+        return df
+    if target_col not in df.columns:
+        print(f"[WARN] zero-ratio filter skipped: '{target_col}' not in columns.")
+        return df
+    work = df[[target_col]].copy()
+    work["date"] = work.index.date
+    zero_ratio = work.groupby("date")[target_col].apply(lambda s: (s == 0).mean())
+    drop_dates = zero_ratio[zero_ratio >= threshold].index
+    if len(drop_dates) > 0:
+        print(f"[INFO] Dropping {len(drop_dates)} dates with {target_col} zero_ratio >= {threshold}")
+    date_mask = pd.Series(df.index.date).isin(drop_dates).to_numpy()
+    return df[~date_mask]
+
 def save_splits(out_dir, prefix, train, val, test):
     os.makedirs(out_dir, exist_ok=True)
     train.to_csv(os.path.join(out_dir, f"{prefix}_train.csv"))
@@ -188,7 +204,7 @@ def save_splits(out_dir, prefix, train, val, test):
 
 def parse_cols(arg):
     if not arg:
-        raise ValueError("Column list is required. Provide --ereport_cols and --smartcare_process_cols.")
+        return []
     return [c.strip() for c in arg.split(",") if c.strip()]
 
 
@@ -218,6 +234,12 @@ def main():
         type=int,
         default=0,
         help="Exclude data with month >= this value (e.g., 10 removes Oct/Nov/Dec).",
+    )
+    parser.add_argument(
+        "--drop_zero_ratio_threshold",
+        type=float,
+        default=0.0,
+        help="Drop dates where target column has zero ratio >= threshold (0 disables).",
     )
     # Args for Tod aggregation
     args = parser.parse_args()
@@ -266,6 +288,10 @@ def main():
     # Drop rows where joins might have failed (especially for Tod)
     n_before = len(merged_df)
     merged_df = merged_df.dropna()
+    if args.drop_zero_ratio_threshold > 0:
+        merged_df = drop_high_zero_days(
+            merged_df, target_col="Power", threshold=args.drop_zero_ratio_threshold
+        )
     if args.exclude_from_month:
         merged_df = merged_df[merged_df.index.month < args.exclude_from_month]
     n_after = len(merged_df)
