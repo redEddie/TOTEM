@@ -8,7 +8,7 @@ COMBINED_BASE="lg3/data/combined"
 COMBINED_REVIN="${COMBINED_BASE}/revin"
 PROCESSED_COMBINED="lg3/data/processed_combined"
 
-EREPORT_COLS="Power,Capa_Cooling,Rop,Tin,Tout,Comp1 Hz_1,VAP_Entha"
+EREPORT_COLS="Power,Capa_Cooling,Rop"
 SMARTCARE_COLS="Tod"
 FREQ="30min"
 EXCLUDE_FROM_MONTH=10
@@ -18,7 +18,7 @@ SEQ_LEN=48
 PRED_LEN=48
 TIN=48  # SEQ LEN이랑 같은 값
 TOUT=48 # PRED LEN이랑 같은 값
-BATCH_SIZE=2048
+BATCH_SIZE=128
 GPU=1
 
 VQVAE_CONFIG="lg3/scripts/lg3.json"
@@ -30,67 +30,67 @@ TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW128_CF16_BS2048_ITR4000/checkpoints/
 
 IFS=',' read -r -a SOURCE_ARR <<< "$SOURCES"
 
-# 1) per-source prepare
-for SOURCE in "${SOURCE_ARR[@]}"; do
-  python lg3/prepare_lg3_data.py \
-    --ereport_dir "${DATA_ROOT}/${SOURCE}/EREPORT" \
-    --smartcare_dir "${DATA_ROOT}/${SOURCE}/SMARTCARE" \
-    --freq "${FREQ}" \
-    --output_dir "${PROCESSED_ROOT}/${SOURCE}" \
-    --train_ratio 0.7 \
-    --val_ratio 0.1 \
-  --ereport_cols "${EREPORT_COLS}" \
-  --smartcare_process_cols "${SMARTCARE_COLS}" \
-  --exclude_from_month ${EXCLUDE_FROM_MONTH} \
-  --drop_zero_ratio_threshold ${DROP_ZERO_RATIO}
- done
+# # 1) per-source prepare
+# for SOURCE in "${SOURCE_ARR[@]}"; do
+#   python lg3/prepare_lg3_data.py \
+#     --ereport_dir "${DATA_ROOT}/${SOURCE}/EREPORT" \
+#     --smartcare_dir "${DATA_ROOT}/${SOURCE}/SMARTCARE" \
+#     --freq "${FREQ}" \
+#     --output_dir "${PROCESSED_ROOT}/${SOURCE}" \
+#     --train_ratio 0.7 \
+#     --val_ratio 0.1 \
+#   --ereport_cols "${EREPORT_COLS}" \
+#   --smartcare_process_cols "${SMARTCARE_COLS}" \
+#   --exclude_from_month ${EXCLUDE_FROM_MONTH} \
+#   --drop_zero_ratio_threshold ${DROP_ZERO_RATIO}
+#  done
 
-# 2) per-source revin
-for SOURCE in "${SOURCE_ARR[@]}"; do
-  PYTHONPATH=. python -m lg3.save_revin_data \
-    --input_dir "${PROCESSED_ROOT}/${SOURCE}" \
-    --output_dir "${REVIN_ROOT}/${SOURCE}" \
-    --seq_len ${SEQ_LEN} \
-    --pred_len ${PRED_LEN} \
-    --batch_size ${BATCH_SIZE} \
-    --gpu ${GPU}
- done
+# # 2) per-source revin
+# for SOURCE in "${SOURCE_ARR[@]}"; do
+#   PYTHONPATH=. python -m lg3.save_revin_data \
+#     --input_dir "${PROCESSED_ROOT}/${SOURCE}" \
+#     --output_dir "${REVIN_ROOT}/${SOURCE}" \
+#     --seq_len ${SEQ_LEN} \
+#     --pred_len ${PRED_LEN} \
+#     --batch_size ${BATCH_SIZE} \
+#     --gpu ${GPU}
+#  done
 
-# 3) combine revin for VQ-VAE
-python - <<PY
-import os
-import shutil
-import numpy as np
+# # 3) combine revin for VQ-VAE
+# python - <<PY
+# import os
+# import shutil
+# import numpy as np
 
-sources = "${SOURCES}".split(",")
-revin_root = "${REVIN_ROOT}"
-combined_revin = "${COMBINED_REVIN}"
+# sources = "${SOURCES}".split(",")
+# revin_root = "${REVIN_ROOT}"
+# combined_revin = "${COMBINED_REVIN}"
 
-if os.path.isdir(combined_revin):
-    shutil.rmtree(combined_revin)
-os.makedirs(combined_revin, exist_ok=True)
+# if os.path.isdir(combined_revin):
+#     shutil.rmtree(combined_revin)
+# os.makedirs(combined_revin, exist_ok=True)
 
-for split in ["train", "val", "test"]:
-    xs, ys = [], []
-    for source in sources:
-        src_dir = os.path.join(revin_root, source)
-        xs.append(np.load(os.path.join(src_dir, f"{split}_data_x.npy")))
-        ys.append(np.load(os.path.join(src_dir, f"{split}_data_y.npy")))
-    x = np.concatenate(xs, axis=0)
-    y = np.concatenate(ys, axis=0)
-    np.save(os.path.join(combined_revin, f"{split}_data_x.npy"), x)
-    np.save(os.path.join(combined_revin, f"{split}_data_y.npy"), y)
-print("[DONE] combined revin ->", combined_revin)
-PY
+# for split in ["train", "val", "test"]:
+#     xs, ys = [], []
+#     for source in sources:
+#         src_dir = os.path.join(revin_root, source)
+#         xs.append(np.load(os.path.join(src_dir, f"{split}_data_x.npy")))
+#         ys.append(np.load(os.path.join(src_dir, f"{split}_data_y.npy")))
+#     x = np.concatenate(xs, axis=0)
+#     y = np.concatenate(ys, axis=0)
+#     np.save(os.path.join(combined_revin, f"{split}_data_x.npy"), x)
+#     np.save(os.path.join(combined_revin, f"{split}_data_y.npy"), y)
+# print("[DONE] combined revin ->", combined_revin)
+# PY
 
-# 4) train VQ-VAE (uses combined revin)
-PYTHONPATH=. python -m lg3.train_vqvae \
-  --config_path "${VQVAE_CONFIG}" \
-  --model_init_num_gpus ${GPU} \
-  --data_init_cpu_or_gpu cpu \
-  --save_path "${VQVAE_SAVE}" \
-  --base_path "${COMBINED_BASE}" \
-  --batchsize ${BATCH_SIZE}
+# # 4) train VQ-VAE (uses combined revin)
+# PYTHONPATH=. python -m lg3.train_vqvae \
+#   --config_path "${VQVAE_CONFIG}" \
+#   --model_init_num_gpus ${GPU} \
+#   --data_init_cpu_or_gpu cpu \
+#   --save_path "${VQVAE_SAVE}" \
+#   --base_path "${COMBINED_BASE}" \
+#   --batchsize ${BATCH_SIZE}
 
 # 5) combine per-source splits for forecaster input
 python - <<PY
@@ -141,7 +141,7 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --checkpoint \
   --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin${SEQ_LEN}_Tout${PRED_LEN}_seed2021" \
   --file_save_path "lg3/results/" \
-  --patience 20 \
+  --patience 5 \
   --d-model 128 \
   --d_hid 512 \
   --nlayers 8 \
@@ -189,7 +189,7 @@ PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
   --plot_mode pred_only \
   --start_idx 0 \
   --num_sequences 250 \
-  --batch_size 16 \
+  --batch_size 32 \
   --cuda_id 0 \
   --scheme 1 \
   --save_each \

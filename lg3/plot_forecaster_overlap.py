@@ -176,6 +176,8 @@ def main():
             plt.title(f"{args.feature} seq {start + i}")
             plt.xlabel("time step")
             plt.ylabel(args.feature)
+            plt.minorticks_on()
+            plt.grid(True, which="both", alpha=0.2)
             out = os.path.join(args.output_dir, f"seq_{start + i:05d}.png")
             plt.tight_layout()
             plt.savefig(out, dpi=150)
@@ -188,6 +190,8 @@ def main():
         plt.title(title)
         plt.xlabel("time step")
         plt.ylabel(args.feature)
+        plt.minorticks_on()
+        plt.grid(True, which="both", alpha=0.2)
         plt.tight_layout()
 
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
