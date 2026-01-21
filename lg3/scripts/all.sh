@@ -10,21 +10,21 @@ PROCESSED_COMBINED="lg3/data/processed_combined"
 
 EREPORT_COLS="Power"
 SMARTCARE_COLS=""
-FREQ="5min"
+FREQ="30min"
 EXCLUDE_FROM_MONTH=10
 DROP_ZERO_RATIO=0.9
 
-SEQ_LEN=288
-PRED_LEN=288
+SEQ_LEN=48
+PRED_LEN=48
 BATCH_SIZE=2048
 GPU=1
 
 VQVAE_CONFIG="lg3/scripts/lg3.json"
 VQVAE_SAVE="lg3/saved_models/"
 
-COMPRESSION=4
+COMPRESSION=16
 FORECAST_SAVE="lg3/data/forecasting/Tin${SEQ_LEN}_Tout${PRED_LEN}"
-TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW256_CF4_BS2048_ITR15000/checkpoints/final_model.pth"
+TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW256_CF16_BS2048_ITR15000/checkpoints/final_model.pth"
 
 IFS=',' read -r -a SOURCE_ARR <<< "$SOURCES"
 

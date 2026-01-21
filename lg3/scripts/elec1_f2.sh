@@ -17,9 +17,9 @@ GPU=0
 VQVAE_CONFIG="lg3/scripts/lg3.json"
 VQVAE_SAVE="lg3/saved_models/"
 
-COMPRESSION=4
+COMPRESSION=16
 FORECAST_SAVE="lg3/data/forecasting/Tin${SEQ_LEN}_Tout${PRED_LEN}"
-TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW256_CF4_BS2048_ITR15000/checkpoints/final_model.pth"
+TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW256_CF16_BS2048_ITR15000/checkpoints/final_model.pth"
 
 python lg3/prepare_lg3_data.py \
   --ereport_dir "${DATA_ROOT}/EREPORT" \

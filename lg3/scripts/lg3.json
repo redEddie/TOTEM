@@ -12,7 +12,7 @@
     "embedding_dim": 64,
     "num_embeddings": 256,
     "commitment_cost": 0.25,
-    "compression_factor": 4,
+        "compression_factor": 16,
     "dataset": "lg3"
   },
   "comet_config": {
