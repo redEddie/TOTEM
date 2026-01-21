@@ -1,6 +1,6 @@
 set -e
 
-SOURCES="elec1_f2,ohsung_f2,snu"
+SOURCES="elec1_f2,ohsung_f2"
 DATA_ROOT="data"
 PROCESSED_ROOT="lg3/data/processed_sources"
 REVIN_ROOT="lg3/data/revin_sources"
@@ -8,22 +8,23 @@ COMBINED_BASE="lg3/data/combined"
 COMBINED_REVIN="${COMBINED_BASE}/revin"
 PROCESSED_COMBINED="lg3/data/processed_combined"
 
-EREPORT_COLS="MFR_068,Comp1 Hz_1,Comp1 Hz_0,Power,VAP_Entha,LIQ_Entha,Tcond"
-SMARTCARE_COLS="Tod"
-FREQ="5min"
+EREPORT_COLS="Power"
+SMARTCARE_COLS=""
+FREQ="30min"
 EXCLUDE_FROM_MONTH=10
+DROP_ZERO_RATIO=0.9
 
-SEQ_LEN=288
-PRED_LEN=288
+SEQ_LEN=48
+PRED_LEN=48
 BATCH_SIZE=2048
 GPU=1
 
 VQVAE_CONFIG="lg3/scripts/lg3.json"
 VQVAE_SAVE="lg3/saved_models/"
 
-COMPRESSION=4
+COMPRESSION=16
 FORECAST_SAVE="lg3/data/forecasting/Tin${SEQ_LEN}_Tout${PRED_LEN}"
-TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW256_CF4_BS2048_ITR15000/checkpoints/final_model.pth"
+TRAINED_VQVAE_PATH="lg3/saved_models/CD64_CW256_CF16_BS2048_ITR15000/checkpoints/final_model.pth"
 
 IFS=',' read -r -a SOURCE_ARR <<< "$SOURCES"
 
@@ -36,9 +37,10 @@ for SOURCE in "${SOURCE_ARR[@]}"; do
     --output_dir "${PROCESSED_ROOT}/${SOURCE}" \
     --train_ratio 0.7 \
     --val_ratio 0.1 \
-    --ereport_cols "${EREPORT_COLS}" \
-    --smartcare_process_cols "${SMARTCARE_COLS}" \
-    --exclude_from_month ${EXCLUDE_FROM_MONTH}
+  --ereport_cols "${EREPORT_COLS}" \
+  --smartcare_process_cols "${SMARTCARE_COLS}" \
+  --exclude_from_month ${EXCLUDE_FROM_MONTH} \
+  --drop_zero_ratio_threshold ${DROP_ZERO_RATIO}
  done
 
 # 2) per-source revin
@@ -133,7 +135,7 @@ PYTHONPATH=. python -m lg3.train_forecaster \
   --cuda-id ${GPU} \
   --seed 2021 \
   --data_path "${FORECAST_SAVE}" \
-  --codebook_size 256 \
+  --codebook_size 128 \
   --checkpoint \
   --checkpoint_path "lg3/saved_models/lg3/forecaster_checkpoints/lg3_Tin${SEQ_LEN}_Tout${PRED_LEN}_seed2021" \
   --file_save_path "lg3/results/" \

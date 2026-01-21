@@ -10,9 +10,9 @@
     "num_residual_layers": 2,
     "res_hidden_size": 64,
     "embedding_dim": 64,
-    "num_embeddings": 256,
+        "num_embeddings": 128,
     "commitment_cost": 0.25,
-    "compression_factor": 4,
+        "compression_factor": 16,
     "dataset": "lg3"
   },
   "comet_config": {

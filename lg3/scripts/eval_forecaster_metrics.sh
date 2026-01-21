@@ -23,9 +23,24 @@ PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
   --feature_names_path "${FEATURE_NAMES_PATH}" \
   --checkpoint_dir "${CHECKPOINT_DIR}" \
   --feature "${FEATURE_NAME}" \
+  --plot_mode pred_only \
   --start_idx 0 \
   --num_sequences 200 \
   --batch_size 32 \
   --cuda_id 0 \
   --scheme 1 \
   --output "lg3/results/forecast_overlap_${FEATURE_NAME}.png"
+
+PYTHONPATH=. python -m lg3.plot_forecaster_overlap \
+  --data_dir "${DATA_DIR}" \
+  --feature_names_path "${FEATURE_NAMES_PATH}" \
+  --checkpoint_dir "${CHECKPOINT_DIR}" \
+  --feature "${FEATURE_NAME}" \
+  --plot_mode pred_only \
+  --start_idx 0 \
+  --num_sequences 50 \
+  --batch_size 16 \
+  --cuda_id 0 \
+  --scheme 1 \
+  --save_each \
+  --output_dir "lg3/results/non_overlap"

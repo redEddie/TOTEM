@@ -68,8 +68,29 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--scheme", type=int, default=1)
     parser.add_argument("--cuda_id", type=int, default=0)
+    parser.add_argument(
+        "--plot_mode",
+        type=str,
+        default="pred_only",
+        choices=["pred_only", "context"],
+        help="pred_only: plot only forecast horizon. context: plot input tail + forecast.",
+    )
+    parser.add_argument(
+        "--context_len",
+        type=int,
+        default=0,
+        help="Number of input steps to show when plot_mode=context. 0 uses full input length.",
+    )
     parser.add_argument("--output", type=str, default="lg3/results/forecast_overlap_power.png")
+    parser.add_argument("--save_each", action="store_true", help="Save each sequence as a separate plot.")
+    parser.add_argument("--output_dir", type=str, default="lg3/results/non_overlap")
     args = parser.parse_args()
+
+    if args.save_each and os.path.isdir(args.output_dir):
+        for name in os.listdir(args.output_dir):
+            path = os.path.join(args.output_dir, name)
+            if os.path.isfile(path):
+                os.remove(path)
 
     x = np.load(os.path.join(args.data_dir, "test_x_original.npy"))
     y = np.load(os.path.join(args.data_dir, "test_y_original.npy"))
@@ -78,6 +99,8 @@ def main():
 
     with open(args.feature_names_path, "r") as f:
         feature_names = json.load(f)
+    if isinstance(feature_names, dict):
+        feature_names = feature_names.get("features", [])
     if args.feature not in feature_names:
         raise ValueError(f"Feature '{args.feature}' not in feature_names.json")
     feature_idx = feature_names.index(args.feature)
@@ -105,6 +128,7 @@ def main():
 
     preds = []
     gts = []
+    x_hist = []
     with torch.no_grad():
         for i in range(start, end, args.batch_size):
             xb = torch.from_numpy(x[i : i + args.batch_size]).float()
@@ -122,25 +146,53 @@ def main():
             )
             preds.append(y_pred[:, :, feature_idx])
             gts.append(yb.numpy()[:, :, feature_idx])
+            x_hist.append(xb.numpy()[:, :, feature_idx])
 
     preds = np.concatenate(preds, axis=0)
     gts = np.concatenate(gts, axis=0)
+    x_hist = np.concatenate(x_hist, axis=0)
 
     plt.figure(figsize=(12, 4))
     for i in range(len(preds)):
-        offset = start + i
-        x_axis = np.arange(offset, offset + preds.shape[1])
-        plt.plot(x_axis, preds[i], color="tab:blue", alpha=0.15)
-        plt.plot(x_axis, gts[i], color="tab:green", alpha=0.15)
+        is_individual = args.save_each
+        if args.plot_mode == "pred_only":
+            offset = start + i
+            x_axis = np.arange(offset, offset + preds.shape[1])
+            alpha = 1.0 if is_individual else 0.15
+            plt.plot(x_axis, preds[i], color="tab:blue", alpha=alpha)
+            plt.plot(x_axis, gts[i], color="tab:green", alpha=alpha)
+        else:
+            full_ctx = x_hist[i]
+            ctx_len = args.context_len if args.context_len > 0 else full_ctx.shape[0]
+            ctx = full_ctx[-ctx_len:]
+            x_axis_ctx = np.arange(0, ctx_len)
+            x_axis_pred = np.arange(ctx_len, ctx_len + preds.shape[1])
+            alpha = 1.0 if is_individual else 0.2
+            plt.plot(x_axis_ctx, ctx, color="tab:gray", alpha=alpha)
+            plt.plot(x_axis_pred, preds[i], color="tab:blue", alpha=alpha)
+            plt.plot(x_axis_pred, gts[i], color="tab:green", alpha=alpha)
+        if args.save_each:
+            os.makedirs(args.output_dir, exist_ok=True)
+            plt.title(f"{args.feature} seq {start + i}")
+            plt.xlabel("time step")
+            plt.ylabel(args.feature)
+            out = os.path.join(args.output_dir, f"seq_{start + i:05d}.png")
+            plt.tight_layout()
+            plt.savefig(out, dpi=150)
+            plt.cla()
 
-    plt.title(f"Overlap forecast vs ground truth ({args.feature})")
-    plt.xlabel("sequence offset")
-    plt.ylabel(args.feature)
-    plt.tight_layout()
+    title = f"Forecast vs ground truth ({args.feature})"
+    if args.plot_mode == "context":
+        title += " with input context"
+    if not args.save_each:
+        plt.title(title)
+        plt.xlabel("time step")
+        plt.ylabel(args.feature)
+        plt.tight_layout()
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    plt.savefig(args.output, dpi=150)
-    print("Saved overlap plot to", args.output)
+        os.makedirs(os.path.dirname(args.output), exist_ok=True)
+        plt.savefig(args.output, dpi=150)
+        print("Saved overlap plot to", args.output)
 
 
 if __name__ == "__main__":
